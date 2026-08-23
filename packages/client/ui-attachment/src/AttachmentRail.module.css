@@ -50,6 +50,42 @@
   object-fit: cover;
 }
 
+.fileThumbnail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 7px;
+  text-align: center;
+  cursor: default;
+}
+
+.fileGlyph {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 12px;
+}
+
+.fileName {
+  width: 100%;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  line-height: 13px;
+  text-overflow: ellipsis;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.fileMeta {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 9px;
+  line-height: 11px;
+}
+
 .remove {
   position: absolute;
   top: 4px;

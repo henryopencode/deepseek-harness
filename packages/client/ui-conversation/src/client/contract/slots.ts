@@ -30,6 +30,18 @@ export interface ComposerAttachment {
   previewUrl: string
 }
 
+/** A non-image file staged in the composer attachment rail. */
+export interface ComposerFileAttachment {
+  kind: 'file'
+  id: string
+  file: File
+  name: string
+  size: number
+  mediaType: string
+  status: 'uploading' | 'ready' | 'error'
+  path?: string
+}
+
 /** Input state handed to the optional attachment presentation plugin. */
 export interface ComposerAttachmentsOwnerProps {
   /** Browser-owned draft images in input order. */
@@ -40,6 +52,12 @@ export interface ComposerAttachmentsOwnerProps {
   onAddImages: (files: readonly File[]) => void
   /** Remove one draft image through the conversation service. */
   onRemoveImage: (id: DraftAttachmentId) => void
+  /** Browser-dropped non-image files staged in the same rail. */
+  fileAttachments?: readonly ComposerFileAttachment[]
+  /** Add non-image files through the host upload/path resolution path. */
+  onAddFiles?: (files: readonly File[]) => void
+  /** Remove one staged non-image file. */
+  onRemoveFile?: (id: string) => void
   /** Display-ready limits for the drop invitation. */
   dropLimits?: { readonly count: number; readonly size: string } | undefined
 }
@@ -539,6 +557,12 @@ export interface ComposerBarInjected {
   removeImage: ((id: DraftAttachmentId) => void) | undefined
   /** Resolve ordered input ids to browser-owned draft images. */
   draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
+  /**
+   * Upload one dropped file's bytes to the session's `.dsh-uploads` directory
+   * and resolve its written absolute path (the browser cannot read a dropped
+   * file's path itself); absent with the session.
+   */
+  uploadDroppedFile?: ((file: File) => Promise<string>) | undefined
   /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
   resolveSubmitMode: (
     running: boolean,

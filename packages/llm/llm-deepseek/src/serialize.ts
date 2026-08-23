@@ -71,19 +71,24 @@ function resolveThinking(options: GenerateOptions, defaults: RequestDefaults): R
   return defaults.thinking === undefined ? {} : { thinking: defaults.thinking }
 }
 
-/** Join the text blocks of a message (used for user/tool-result content). */
-function flattenText(blocks: ContentBlock[]): string {
-  return blocks
-    .filter(block => block.type === 'text')
-    .map(block => block.text)
-    .join('')
+/** Text marker used when a text-only model continues after image history. */
+const TEXT_ONLY_IMAGE_PLACEHOLDER = '[image omitted: current model does not accept image input]'
+
+/** Model-visible projection of one durable workspace file reference. */
+function fileReferenceText(block: Extract<ContentBlock, { type: 'file' }>): string {
+  return `\n[Attached file: ${block.name}]\nWorkspace path: ${block.path}\nMedia type: ${block.mediaType}; size: ${String(block.bytes)} bytes\n`
 }
 
-/** Reject core image content before any text-flattening path can silently erase it. */
-function assertTextOnly(blocks: readonly ContentBlock[]): void {
-  if (contentHasImage(blocks)) {
-    throw new LlmError('The DeepSeek chat-completions adapter does not support image content.', 'UNSUPPORTED_CONTENT')
-  }
+/** Join text blocks, optionally preserving an explicit marker for image history. */
+function flattenText(blocks: readonly ContentBlock[], includeImagePlaceholder = false): string {
+  return blocks
+    .flatMap(block => {
+      if (block.type === 'text') return [block.text]
+      if (block.type === 'file') return [fileReferenceText(block)]
+      if (includeImagePlaceholder && block.type === 'image') return [TEXT_ONLY_IMAGE_PLACEHOLDER]
+      return []
+    })
+    .join('')
 }
 
 /** Reject roles whose DeepSeek history format cannot carry image input. */
@@ -134,6 +139,9 @@ async function contentParts(
         break
       case 'image':
         parts.push(await imagePart(block, attachments, signal))
+        break
+      case 'file':
+        parts.push({ type: 'text', text: fileReferenceText(block) })
         break
       case 'tool-result':
         parts.push(...await contentParts(block.content, attachments, signal))
@@ -203,9 +211,8 @@ function serializeAssistant(message: Message): WireMessage {
 export function serializeMessages(messages: Message[]): WireMessage[] {
   const wire: WireMessage[] = []
   for (const message of messages) {
-    assertTextOnly(message.content)
     if (message.role === 'system') {
-      wire.push({ role: 'system', content: flattenText(message.content) })
+      wire.push({ role: 'system', content: flattenText(message.content, true) })
       continue
     }
     if (message.role === 'assistant') {
@@ -215,7 +222,7 @@ export function serializeMessages(messages: Message[]): WireMessage[] {
     // user role: tool results ride in user messages in the harness
     // vocabulary, but DeepSeek wants them as role:'tool' messages.
     const toolResults = message.content.filter(block => block.type === 'tool-result')
-    const text = flattenText(message.content)
+    const text = flattenText(message.content, true)
     if (text.length > 0 || toolResults.length === 0) {
       wire.push({ role: 'user', content: text })
     }
@@ -224,7 +231,7 @@ export function serializeMessages(messages: Message[]): WireMessage[] {
         role: 'tool',
         tool_call_id: result.toolCallId,
         // Empty tool output still needs SOME content on the wire.
-        content: flattenText(result.content) || '(no output)',
+        content: flattenText(result.content, true) || '(no output)',
       })
     }
   }

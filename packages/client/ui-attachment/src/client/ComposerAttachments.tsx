@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
-  ComposerAttachment, ComposerAttachmentsProps,
+  ComposerAttachment, ComposerAttachmentsProps, ComposerFileAttachment,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { AttachmentRail } from '../AttachmentRail.tsx'
 import type { AttachmentRailItem } from '../AttachmentRail.tsx'
@@ -11,12 +11,18 @@ import css from './ComposerAttachments.module.css'
 
 /** Rail item retaining its browser-owned attachment for callbacks. */
 interface ComposerRailItem extends AttachmentRailItem {
-  attachment: ComposerAttachment
+  attachment: ComposerAttachment | ComposerFileAttachment
+}
+
+function fileSizeText(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 /** Draft-image rail, document drop target, and original-image preview slot entry. */
 export function ComposerAttachments({
-  attachments, canAcceptDrop, onAddImages, onRemoveImage, dropLimits, t,
+  attachments, fileAttachments = [], canAcceptDrop, onAddImages, onAddFiles, onRemoveImage, onRemoveFile, dropLimits, t,
 }: ComposerAttachmentsProps) {
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
@@ -62,7 +68,15 @@ export function ComposerAttachments({
       if (dataTransfer === null) return
       event.preventDefault()
       reset()
-      if (canAcceptDrop) onAddImages([...dataTransfer.files])
+      if (!canAcceptDrop) return
+      const files = [...dataTransfer.files]
+      const images = files.filter(file => file.type.startsWith('image/'))
+      const others = files.filter(file => !file.type.startsWith('image/'))
+      if (images.length > 0) onAddImages(images)
+      if (others.length > 0) {
+        if (onAddFiles !== undefined) onAddFiles(others)
+        else onAddImages(others)
+      }
     }
     document.addEventListener('dragenter', onDragEnter)
     document.addEventListener('dragover', onDragOver)
@@ -78,13 +92,28 @@ export function ComposerAttachments({
     }
   }, [canAcceptDrop, onAddImages])
 
-  const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
-    id: attachment.id,
-    previewUrl: attachment.previewUrl,
-    alt: attachment.file.name || t('image.pending'),
-    removeLabel: t('image.remove', { name: attachment.file.name }),
-    attachment,
-  })), [attachments, t])
+  const railItems = useMemo<ComposerRailItem[]>(() => [
+    ...attachments.map(attachment => ({
+      id: attachment.id,
+      kind: 'image' as const,
+      previewUrl: attachment.previewUrl,
+      alt: attachment.file.name || t('image.pending'),
+      removeLabel: t('image.remove', { name: attachment.file.name }),
+      attachment,
+    })),
+    ...fileAttachments.map(attachment => ({
+      id: attachment.id,
+      kind: 'file' as const,
+      alt: attachment.name,
+      fileName: attachment.name,
+      ...(attachment.size === 0 ? {} : {
+        fileMeta: `${fileSizeText(attachment.size)}${attachment.status === 'uploading' ? ' · …' : ''}`,
+      }),
+      status: attachment.status,
+      removeLabel: t('file.remove', { name: attachment.name }),
+      attachment,
+    })),
+  ], [attachments, fileAttachments, t])
 
   return (
     <>
@@ -99,8 +128,13 @@ export function ComposerAttachments({
           <AttachmentRail
             items={railItems}
             labels={attachmentRailLabels(t)}
-            onOpen={(item) => { setPreview(item.attachment) }}
-            onRemove={(item) => { onRemoveImage(item.attachment.id) }}
+            onOpen={(item) => {
+              if (item.attachment.kind === 'image') setPreview(item.attachment)
+            }}
+            onRemove={(item) => {
+              if (item.attachment.kind === 'image') onRemoveImage(item.attachment.id)
+              else onRemoveFile?.(item.attachment.id)
+            }}
           />
         </div>
       )}

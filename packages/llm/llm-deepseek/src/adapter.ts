@@ -234,14 +234,9 @@ export class DeepSeekAdapter extends LlmAdapter {
     const connection = this.config.options()
     const hasImages = options.messages.some(message => contentHasImage(message.content))
     let attachments: AttachmentStore | undefined
-    if (hasImages) {
-      const model = connection.models.find(entry => entry.id === options.model)
-      if (model?.inputModalities?.includes('image') !== true) {
-        throw new LlmError(
-          `DeepSeek model "${options.model}" does not accept image input.`,
-          'UNSUPPORTED_CONTENT',
-        )
-      }
+    const model = hasImages ? connection.models.find(entry => entry.id === options.model) : undefined
+    const modelAcceptsImages = model?.inputModalities?.includes('image') === true
+    if (hasImages && modelAcceptsImages) {
       attachments = this.config.resolveAttachments?.()
       if (attachments === undefined) {
         throw new LlmError(

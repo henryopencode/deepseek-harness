@@ -4,16 +4,16 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { AttachmentError, admitEncodedImages } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, isJsonValue } from '@deepseek-ai/dsh-session'
@@ -124,17 +124,55 @@ export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
-/** Validate one prompt as a batch before publishing any durable image object. */
-async function durablePromptContent(ctx: Context, content: readonly PromptContentPart[]): Promise<ContentBlock[]> {
-  if (content.every(part => part.type === 'text')) {
-    return content.map(part => ({ type: 'text', text: part.text }))
+/** Maximum size for one browser-dropped reference file. */
+const DEFAULT_UPLOAD_DROPPED_FILE_MAX_BYTES = 20 * 1024 * 1024
+const UPLOAD_DROPPED_DIR = '.dsh-uploads'
+
+/** Write a dropped reference file below a known workspace without overwriting. */
+async function writeDroppedFile(root: string, name: string, data: Buffer): Promise<string> {
+  const dir = join(root, UPLOAD_DROPPED_DIR)
+  await mkdir(dir, { recursive: true })
+  const dot = name.lastIndexOf('.')
+  const stem = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ''
+  for (let index = 0; ; index += 1) {
+    const candidate = join(dir, index === 0 ? name : `${stem}-${String(index)}${ext}`)
+    try {
+      await writeFile(candidate, data, { flag: 'wx' })
+      return candidate
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
+      throw error
+    }
   }
+}
+
+/** Validate one prompt as a batch before publishing durable attachment references. */
+async function durablePromptContent(
+  ctx: Context,
+  content: readonly PromptContentPart[],
+  cwd: string,
+): Promise<ContentBlock[]> {
   const refs = await admitEncodedImages(ctx.attachments, content.filter(part => part.type === 'image'))
-  let next = 0
-  return content.map(part => part.type === 'text'
-    ? { type: 'text', text: part.text }
-    // admitEncodedImages returns one reference per image part in order.
-    : { type: 'image', attachment: refs[next++] as ImageAttachmentRef })
+  const files = await Promise.all(content.filter(part => part.type === 'file').map(async (part) => {
+    const rel = relative(cwd, part.path)
+    if (!isAbsolute(part.path) || rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      throw new Error(`file reference is outside the session workspace: ${part.path}`)
+    }
+    if (!rel.split(sep).includes('.dsh-uploads')) {
+      throw new Error(`file reference is not an admitted upload: ${part.path}`)
+    }
+    const info = await stat(part.path)
+    if (!info.isFile()) throw new Error(`file reference is not a regular file: ${part.path}`)
+    return { type: 'file' as const, name: part.name, path: part.path, mediaType: part.mediaType, bytes: info.size }
+  }))
+  let nextImage = 0
+  let nextFile = 0
+  return content.map((part): ContentBlock => {
+    if (part.type === 'text') return { type: 'text', text: part.text }
+    if (part.type === 'file') return files[nextFile++] as ContentBlock
+    return { type: 'image', attachment: refs[nextImage++] as ImageAttachmentRef }
+  })
 }
 
 /** Search durable content for an image reference, including nested tool results. */
@@ -179,11 +217,6 @@ function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => b
     return imageBlockIn([data.chunk.block], match)
   }
   return undefined
-}
-
-/** True when the current model-visible surface contains an image. */
-function messagesHaveImage(messages: readonly { content: readonly ContentBlock[] }[]): boolean {
-  return messages.some(message => contentHasImage(message.content))
 }
 
 /** Resolve the first reference matching one opaque id. */
@@ -598,6 +631,8 @@ export interface ApiProxyDefaults {
   cwd: string
   /** Native open-with-default-application; injectable for carrier tests. */
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
+  /** Maximum byte size for one browser-dropped reference file. */
+  uploadDroppedFileMaxBytes?: number
   /** Native text-editor handoff; injectable for settings-document tests. */
   openTextFile?: (path: string, signal: AbortSignal) => Promise<void>
   /** Validated DEFLATE level for session-log ZIP entries; defaults to 6. */
@@ -2208,18 +2243,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 ? {}
                 : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
             })
-            const pendingImage = [...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep]
-              .some(message => contentHasImage(message.content))
-            if (pendingImage || messagesHaveImage(found.agent.session.deriveMessages())) {
-              const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
-              if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'model-unavailable',
-                  message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
-                  details: { provider, model },
-                })
-              }
-            }
+            // A text model may be selected after an image turn. The DeepSeek
+            // adapter will represent historical images with explicit text
+            // placeholders for that model; new image uploads remain rejected
+            // at prompt admission. Keeping selection independent lets users
+            // continue the text portion of an image conversation.
             const selected: ModelSelection = {
               provider: resolved.provider,
               model: resolved.model,
@@ -2409,7 +2437,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 })
               }
             }
-            const durable = await durablePromptContent(ctx, content)
+            const durable = await durablePromptContent(ctx, content, agent.session.header.cwd ?? defaults.cwd)
             const message: UserMessage = createUserMessage({ content: durable, source })
             if (mode === 'steer') agent.steer(message)
             else agent.followup(message)
@@ -2924,6 +2952,47 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async openPath(request, signal) {
         return openPath(request, request.payload.path, signal)
+      },
+
+      async uploadDroppedFile(request, signal) {
+        const { name, content, cwd } = request.payload
+        const allowed = new Set([defaults.cwd, ...ctx.workspaceRegistry.list().map(workspace => workspace.path)])
+        if (!allowed.has(cwd)) {
+          return err(request, {
+            code: 'upload-cwd-not-allowed',
+            message: `host.uploadDroppedFile refuses to write outside a known project root: ${cwd}`,
+            details: { cwd },
+          })
+        }
+        let bytes: Buffer
+        try {
+          bytes = Buffer.from(content, 'base64')
+          if (content.length === 0 || bytes.toString('base64') !== content) throw new Error('content is not canonical base64')
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'upload-invalid-content',
+            message: `host.uploadDroppedFile content is invalid: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
+        const maxBytes = defaults.uploadDroppedFileMaxBytes ?? DEFAULT_UPLOAD_DROPPED_FILE_MAX_BYTES
+        if (bytes.length > maxBytes) {
+          return err(request, {
+            code: 'upload-too-large',
+            message: `host.uploadDroppedFile exceeds the ${String(maxBytes)}-byte limit for a reference file`,
+            details: { maxBytes, size: bytes.length },
+          })
+        }
+        try {
+          return ok(request, { path: await writeDroppedFile(cwd, name, bytes) })
+        } catch (error: unknown) {
+          if (signal.aborted) return err(request, { code: 'cancelled', message: 'dropped-file upload was aborted', details: {} })
+          return err(request, {
+            code: 'upload-failed',
+            message: `host.uploadDroppedFile write failed: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
       },
     },
 

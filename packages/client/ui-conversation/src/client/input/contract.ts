@@ -17,6 +17,15 @@ import type { InputSubmitMode } from '../contract/composer-submission.ts'
 /** Browser-runtime identity of one unsent image draft. */
 export type DraftAttachmentId = Branded<'DraftAttachmentId'>
 
+/** Host-uploaded file retained independently from editable draft text. */
+export interface DraftFileReference {
+  readonly id: string
+  readonly name: string
+  readonly path: string
+  readonly mediaType: string
+  readonly bytes: number
+}
+
 /**
  * The scoped-event application verbs: the hub's bail listeners call these,
  * and the boolean answer IS the event's bail value (true ⟺ the machine
@@ -39,6 +48,10 @@ export interface SessionInput extends InputTarget {
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser-owned objects no longer exist. */
   pruneImages(ids: readonly DraftAttachmentId[]): void
+  /** Append host-uploaded file references; busy admission phases refuse. */
+  addFiles(files: readonly DraftFileReference[]): boolean
+  /** Remove one attached file; busy admission phases refuse. */
+  removeFile(id: string): void
   /**
    * THE complexity sink: enter adjudication, submit transaction, and the default sink live inside.
    * @param mode - delivery intent retained through asynchronous adjudication and serialization.
@@ -79,6 +92,10 @@ export interface InputActions {
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser-owned objects no longer exist. */
   pruneImages(ids: readonly DraftAttachmentId[]): void
+  /** Append host-uploaded file references. */
+  addFiles?: (files: readonly DraftFileReference[]) => boolean
+  /** Remove one attached file. */
+  removeFile?: (id: string) => void
   /** Enter submission (adjudication / claim transaction / default sink inside). */
   submit(): void
 }
@@ -214,6 +231,8 @@ export interface InputState {
   readonly draft: string
   /** Ordered runtime-only image ids; bytes and URLs stay in ConversationController. */
   readonly imageIds: readonly DraftAttachmentId[]
+  /** Ordered host-uploaded file references, independent from draft text. */
+  readonly files?: readonly DraftFileReference[]
   /** Monotonic draft revision (span CAS compares against this). */
   readonly draftRev: number
   readonly phase: 'plain' | 'adjudicating' | 'claimed' | 'submitting'

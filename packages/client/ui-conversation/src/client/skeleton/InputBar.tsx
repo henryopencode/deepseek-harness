@@ -21,7 +21,7 @@ import type {} from '@deepseek-ai/dsh-goal/client'
 // wire types: apiproxy's sessions contract declares it, and client-runtime's
 // api-remotes import already places it in every client program.
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ComposerBarProps } from '../contract/slots.ts'
+import type { ComposerBarProps, ComposerFileAttachment } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
 import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
@@ -38,7 +38,7 @@ export type InputBarProps = ComposerBarProps
 
 export function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
-  resolveSubmitMode, toggleCommandMenu, stop, command, t,
+  uploadDroppedFile, resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, blocked,
   workspacePickerOpen = false, onRequestWorkspace,
@@ -65,7 +65,26 @@ export function InputBar({
     () => input === undefined || draftImages === undefined ? [] : draftImages(input.imageIds),
     [draftImages, input?.imageIds],
   )
+  const [fileAttachments, setFileAttachments] = useState<ComposerFileAttachment[]>([])
+  const fileSeq = useRef(0)
+  const previousPhase = useRef(input?.phase)
+  const currentSessionRef = useRef(sessionId)
   const empty = draft.trim() === '' && attachments.length === 0
+    && (input?.files?.length ?? 0) === 0
+  const persistedFileAttachments = useMemo<ComposerFileAttachment[]>(() => (input?.files ?? []).map(file => ({
+    kind: 'file',
+    id: file.id,
+    file: new File([], file.name, { type: file.mediaType }),
+    name: file.name,
+    size: file.bytes,
+    mediaType: file.mediaType,
+    status: 'ready',
+    path: file.path,
+  })), [input?.files])
+  const displayedFileAttachments = useMemo(
+    () => [...fileAttachments, ...persistedFileAttachments.filter(persisted => !fileAttachments.some(file => file.path === persisted.path))],
+    [fileAttachments, persistedFileAttachments],
+  )
   // Transient error banner (machine notices, image-intake rejections, and
   // prompt failures): the seq keys the Toast so an identical repeated message
   // restarts the hold-then-fade cycle instead of reusing the faded one.
@@ -95,6 +114,31 @@ export function InputBar({
   useEffect(() => {
     if (notice?.level === 'error') showToast(notice.text)
   }, [notice, showToast])
+  useEffect(() => {
+    if (previousPhase.current === 'submitting' && input?.phase === 'plain' && draft === '') {
+      setFileAttachments([])
+    }
+    previousPhase.current = input?.phase
+  }, [draft, input?.phase])
+  useEffect(() => {
+    setFileAttachments(previous => previous.length === 0 ? previous : [])
+    previousPhase.current = undefined
+    currentSessionRef.current = sessionId
+  }, [sessionId])
+  useEffect(() => {
+    if (input === undefined || inputActions?.addFiles === undefined || keyboard === undefined || (input.files?.length ?? 0) > 0) return
+    const paths = draft.split('\n').filter(line => line.startsWith('/') && line.includes('/.dsh-uploads/'))
+    if (paths.length === 0) return
+    inputActions.addFiles(paths.map((path, index) => ({
+      id: `legacy-${String(index)}-${path}`,
+      name: path.slice(path.lastIndexOf('/') + 1),
+      path,
+      mediaType: 'application/octet-stream',
+      bytes: 0,
+    })))
+    const remove = new Set(paths)
+    keyboard.setDraft(draft.split('\n').filter(line => !remove.has(line)).join('\n').trim())
+  }, [draft, input, inputActions, keyboard])
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const cardRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -133,6 +177,7 @@ export function InputBar({
   // be disabled do lock it — there is no session to choose a model for.
   const modelSeatLocked = removed || inert || !live
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
+  const fileUploading = fileAttachments.some(file => file.status === 'uploading')
   // The no-workspace textarea remains the resident DOM node but acts as the
   // existing picker trigger. Message controls stay locked until a Session
   // exists; the trigger itself is read-only rather than disabled so pointer
@@ -350,6 +395,7 @@ export function InputBar({
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
+    if (fileUploading) return
     const accelerated = e.ctrlKey || e.metaKey
     // Empty-draft accelerated Enter acts on the queue instead of the (empty)
     // draft: the machine rejects empty drafts, so the gesture steers every
@@ -413,7 +459,12 @@ export function InputBar({
       .filter(item => item.kind === 'file')
       .map(item => item.getAsFile())
       .filter((file): file is File => file !== null)
-    if (files.length > 0) intakeImages(files)
+    if (files.length > 0) {
+      const images = files.filter(file => file.type.startsWith('image/'))
+      const otherFiles = files.filter(file => !file.type.startsWith('image/'))
+      if (images.length > 0) intakeImages(images)
+      if (otherFiles.length > 0) addFiles(otherFiles)
+    }
     const text = e.clipboardData.getData('text/plain')
     if (text === '') {
       if (files.length > 0) e.preventDefault()
@@ -464,7 +515,64 @@ export function InputBar({
     if (rejected !== null) showToast(rejected)
   }, [addImages, attachments, imageLimits, showToast, t])
 
-  const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
+  /** Stage non-image files in the same rail and copy their bytes into the workspace. */
+  const addFiles = useCallback((files: readonly File[]): void => {
+    if (files.length === 0) return
+    const staged = files.map((file) => {
+      fileSeq.current += 1
+      return {
+        kind: 'file' as const,
+        id: `file-${String(fileSeq.current)}`,
+        file,
+        name: file.name || 'unnamed-file',
+        size: file.size,
+        mediaType: file.type || 'application/octet-stream',
+        status: 'uploading' as const,
+      }
+    })
+    setFileAttachments(previous => [...previous, ...staged])
+    if (uploadDroppedFile === undefined) {
+      setFileAttachments(previous => previous.map(item => staged.some(file => file.id === item.id) ? { ...item, status: 'error' } : item))
+      const rejected = addImages?.(files)
+      showToast(rejected ?? t('file.pathUnavailable', { count: staged.length }))
+      return
+    }
+    void Promise.all(staged.map(async (item) => {
+      try {
+        const path = await uploadDroppedFile(item.file)
+        return { id: item.id, path, ok: true as const }
+      } catch {
+        return { id: item.id, ok: false as const }
+      }
+    })).then((results) => {
+      if (currentSessionRef.current !== sessionId) return
+      const failed = results.filter(result => !result.ok)
+      const accepted = results.filter((result): result is { id: string; path: string; ok: true } => result.ok)
+      const refs = accepted.flatMap((result) => {
+        const stagedFile = staged.find(file => file.id === result.id)
+        return stagedFile === undefined ? [] : [{
+          id: stagedFile.id,
+          name: stagedFile.name,
+          path: result.path,
+          mediaType: stagedFile.mediaType,
+          bytes: stagedFile.size,
+        }]
+      })
+      if (refs.length > 0 && inputActions?.addFiles !== undefined && inputActions.addFiles(refs) === false) return
+      setFileAttachments(previous => previous.map(item => {
+        const result = results.find(candidate => candidate.id === item.id)
+        return result?.ok === true ? { ...item, status: 'ready', path: result.path } : result?.ok === false ? { ...item, status: 'error' } : item
+      }))
+      if (failed.length > 0) showToast(t('file.pathUnavailable', { count: failed.length }))
+    })
+  }, [addImages, inputActions, sessionId, showToast, t, uploadDroppedFile])
+
+  const removeFile = useCallback((id: string): void => {
+    inputActions?.removeFile?.(id)
+    setFileAttachments(previous => previous.filter(file => file.id !== id))
+  }, [inputActions])
+
+  const canAcceptDrop = !locked && !machineBusy
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
@@ -500,7 +608,9 @@ export function InputBar({
     }
     if (inputActions === undefined) return // absent machine: the button is disabled
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) inputActions.submit()
+    if (!empty && !disabled && !machineBusy && !fileUploading) {
+      inputActions.submit()
+    }
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
@@ -634,9 +744,12 @@ export function InputBar({
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {renderSlot('conversation.input.attachments', {
           attachments,
+          fileAttachments: displayedFileAttachments,
           canAcceptDrop,
           onAddImages: intakeImages,
+          onAddFiles: addFiles,
           onRemoveImage: (id) => { removeImage?.(id) },
+          onRemoveFile: removeFile,
           dropLimits: imageLimits === undefined ? undefined : {
             count: imageLimits.maxImagesPerMessage,
             size: imageSizeText(imageLimits.maxImageBytes),
@@ -739,7 +852,7 @@ export function InputBar({
                 type="button"
                 className={css.primary}
                 aria-label={primaryLabel}
-                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
+                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy || fileUploading}
                 onMouseDown={keepFocus}
                 onClick={onPrimary}
               >

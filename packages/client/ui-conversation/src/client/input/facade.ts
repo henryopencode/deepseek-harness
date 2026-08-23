@@ -13,7 +13,7 @@ import type {
   ReferenceInsert, InputTriggerController, SubmitImageAttachment, SubmitOutcome, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
-  DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
+  DraftAttachmentId, DraftFileReference, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
   PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
 } from './contract.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
@@ -50,6 +50,7 @@ export interface SessionInputDeps {
     imageIds: readonly DraftAttachmentId[],
     mode: InputSubmitMode,
     signal: AbortSignal,
+    files?: readonly DraftFileReference[],
   ): Promise<SubmitOutcome>
   /** Command-plane image plumbing (the hub owns the conversation face and the copy). */
   commandImages: {
@@ -91,6 +92,8 @@ export class SessionInputShell implements SessionInput {
     addImages: ids => this.addImages(ids),
     removeImage: (id) => { this.removeImage(id) },
     pruneImages: (ids) => { this.pruneImages(ids) },
+    addFiles: files => this.addFiles(files),
+    removeFile: (id) => { this.removeFile(id) },
     submit: () => { this.submit('queue') },
   }
 
@@ -100,8 +103,9 @@ export class SessionInputShell implements SessionInput {
   private noticeSeq = 0
   private lastMirroredDraft = ''
   private imageIds: readonly DraftAttachmentId[] = []
-  /** One image-only send at a time: Enter during the Host round-trip is a no-op. */
-  private imageSendInFlight = false
+  private files: readonly DraftFileReference[] = []
+  /** One attachment-only send at a time: Enter during the Host round-trip is a no-op. */
+  private attachmentSendInFlight = false
   private disposed = false
   /** Draft persistence mirror (chat store write; receives the clipboard projection, never display-only ranges). */
   private mirrorFn: ((text: string) => void) | undefined
@@ -157,15 +161,36 @@ export class SessionInputShell implements SessionInput {
     this.publish()
   }
 
+  /** Append uploaded file references independently from editable draft text. */
+  addFiles(files: readonly DraftFileReference[]): boolean {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return false
+    if (files.length === 0) return true
+    const known = new Set(this.files.map(file => file.id))
+    this.files = [...this.files, ...files.filter(file => !known.has(file.id))]
+    this.publish()
+    return true
+  }
+
+  /** Remove one uploaded file reference; the host copy remains as an unreferenced workspace file. */
+  removeFile(id: string): void {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return
+    const next = this.files.filter(file => file.id !== id)
+    if (next.length === this.files.length) return
+    this.files = next
+    this.publish()
+  }
+
   /**
    * Clear the draft as a successful-send commit: no undo unit is recorded and
    * the undo history is cut, so Ctrl/Cmd-Z cannot resurrect sent content
    * (the command path gets the same discipline from submit-settled success).
    * @param imageIds - admitted image ids to remove from this draft.
    */
-  commitSend(imageIds: readonly DraftAttachmentId[]): void {
+  commitSend(imageIds: readonly DraftAttachmentId[], fileIds: readonly string[] = []): void {
     const submitted = new Set(imageIds)
     this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+    const submittedFiles = new Set(fileIds)
+    this.files = this.files.filter(file => !submittedFiles.has(file.id))
     this.run(this.core.dispatch({ type: 'send-committed' }))
   }
 
@@ -207,17 +232,18 @@ export class SessionInputShell implements SessionInput {
    * dismisses and the menu tracks frozen.
    */
   submit(mode: InputSubmitMode = 'queue'): void {
-    if (this.snapshot.draft.trim() === '' && this.imageIds.length > 0) {
-      if (this.snapshot.phase === 'plain' && !this.imageSendInFlight) {
+    if (this.snapshot.draft.trim() === '' && (this.imageIds.length > 0 || this.files.length > 0)) {
+      if (this.snapshot.phase === 'plain' && !this.attachmentSendInFlight) {
         const imageIds = [...this.imageIds]
-        this.imageSendInFlight = true
-        void this.deps.defaultSink('', imageIds, mode, new AbortController().signal).then((outcome) => {
-          this.imageSendInFlight = false
+        const files = [...this.files]
+        this.attachmentSendInFlight = true
+        void this.defaultSink('', imageIds, files, mode, new AbortController().signal).then((outcome) => {
+          this.attachmentSendInFlight = false
           if (this.disposed) return
-          if (outcome.kind === 'success') this.commitSend(imageIds)
+          if (outcome.kind === 'success') this.commitSend(imageIds, files.map(file => file.id))
           else if (outcome.text !== undefined) this.notify('error', outcome.text)
         }, (error: unknown) => {
-          this.imageSendInFlight = false
+          this.attachmentSendInFlight = false
           if (!this.disposed) this.notify('error', error instanceof Error ? error.message : String(error))
         })
       }
@@ -455,9 +481,10 @@ export class SessionInputShell implements SessionInput {
    */
   private sinkSerialized(attempt: SubmitAttempt, draft: string, mode: InputSubmitMode): void {
     const imageIds = [...this.imageIds]
+    const files = [...this.files]
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
-      this.settleSubmit(attempt, this.deps.defaultSink(draft.trim(), imageIds, mode, attempt.signal), imageIds)
+      this.settleSubmit(attempt, this.defaultSink(draft.trim(), imageIds, files, mode, attempt.signal), imageIds, files)
       return
     }
     const inputTriggers = this.deps.inputTriggers?.()
@@ -481,7 +508,7 @@ export class SessionInputShell implements SessionInput {
           cursor = part.offset + part.length
         }
         out += draft.slice(cursor)
-        this.settleSubmit(attempt, this.deps.defaultSink(out.trim(), imageIds, mode, attempt.signal), imageIds)
+        this.settleSubmit(attempt, this.defaultSink(out.trim(), imageIds, files, mode, attempt.signal), imageIds, files)
       },
       (error: unknown) => {
         controller.abort()
@@ -497,6 +524,7 @@ export class SessionInputShell implements SessionInput {
     attempt: SubmitAttempt,
     pending: Promise<SubmitOutcome>,
     imageIds: readonly DraftAttachmentId[] = [],
+    files: readonly DraftFileReference[] = [],
   ): void {
     pending.then(
       (outcome) => {
@@ -504,6 +532,10 @@ export class SessionInputShell implements SessionInput {
         if (outcome.kind === 'success' && imageIds.length > 0) {
           const submitted = new Set(imageIds)
           this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+        }
+        if (outcome.kind === 'success' && files.length > 0) {
+          const submitted = new Set(files.map(file => file.id))
+          this.files = this.files.filter(file => !submitted.has(file.id))
         }
         this.run(this.core.dispatch({
           type: 'submit-settled',
@@ -522,6 +554,19 @@ export class SessionInputShell implements SessionInput {
         }))
       },
     )
+  }
+
+  /** Preserve the four-argument sink call when no files are attached. */
+  private defaultSink(
+    text: string,
+    imageIds: readonly DraftAttachmentId[],
+    files: readonly DraftFileReference[],
+    mode: InputSubmitMode,
+    signal: AbortSignal,
+  ): Promise<SubmitOutcome> {
+    return files.length === 0
+      ? this.deps.defaultSink(text, imageIds, mode, signal)
+      : this.deps.defaultSink(text, imageIds, mode, signal, files)
   }
 
   /** Enter adjudication: poll the session controller; failure = notice + draft retained (never a silent downgrade). */
@@ -590,7 +635,7 @@ export class SessionInputShell implements SessionInput {
 
   private compose(): InputState {
     const core = this.core.state
-    return { ...core, imageIds: this.imageIds, queue: this.deps.queue?.getSnapshot() ?? EMPTY_QUEUE }
+    return { ...core, imageIds: this.imageIds, files: this.files, queue: this.deps.queue?.getSnapshot() ?? EMPTY_QUEUE }
   }
 
   private publish(): void {

@@ -33,6 +33,52 @@
   font-size: 12px;
   line-height: 18px;
 }
+
+.fileRail {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.fileCard {
+  display: flex;
+  flex: 0 0 86px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 86px;
+  height: 86px;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 18px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  text-align: center;
+}
+
+.fileType {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.fileName {
+  width: 100%;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileSize {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+}
 .contextRow {
   padding: 2px 0;
 }

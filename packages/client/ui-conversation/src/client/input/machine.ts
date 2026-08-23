@@ -145,6 +145,7 @@ export class InputMachine {
     return {
       draft: this.draft,
       imageIds: [],
+      files: [],
       draftRev: this.draftRev,
       phase: this.phase,
       ...(c

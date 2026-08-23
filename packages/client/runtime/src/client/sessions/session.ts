@@ -233,7 +233,9 @@ export class Session implements SessionFace {
             ...this.address,
             content: content.flatMap(part => part.type === 'text'
               ? [{ type: 'text' as const, text: part.text }]
-              : []),
+              : part.type === 'file'
+                ? [{ type: 'text' as const, text: `[Attached file: ${part.name}]\nWorkspace path: ${part.path}` }]
+                : []),
             clientTimeZone: resolvedClientTimeZone(),
           }, signal)).result
           result = routed.ok ? { ok: true, value: { accepted: true } } : routed

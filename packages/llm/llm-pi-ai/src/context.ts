@@ -57,6 +57,12 @@ async function userContent(
         })
         break
       }
+      case 'file':
+        content.push({
+          type: 'text',
+          text: `\n[Attached file: ${block.name}]\nWorkspace path: ${block.path}\nMedia type: ${block.mediaType}; size: ${String(block.bytes)} bytes\n`,
+        })
+        break
       case 'tool-result':
         {
           const nested = await userContent(block.content, attachments)
