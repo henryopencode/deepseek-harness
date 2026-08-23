@@ -41,10 +41,14 @@ export function dropOverlayLabels(
   accepting: boolean,
   limits?: { readonly count: number; readonly size: string },
 ): DropOverlayLabels {
-  if (!accepting) return { title: t('image.dropBlocked') }
+  const translate = t as unknown as (key: string, params?: Readonly<Record<string, unknown>>) => string
+  const dropTitle = translate('drop.title') === 'drop.title' ? translate('image.dropTitle') : translate('drop.title')
+  const dropBlocked = translate('drop.blocked') === 'drop.blocked' ? translate('image.dropBlocked') : translate('drop.blocked')
+  const dropDesc = translate('drop.desc') === 'drop.desc' ? translate('image.dropDesc', limits ?? {}) : translate('drop.desc', limits ?? {})
+  if (!accepting) return { title: dropBlocked }
   return {
-    title: t('image.dropTitle'),
-    desc: limits === undefined ? undefined : t('image.dropDesc', limits),
+    title: dropTitle,
+    desc: limits === undefined ? undefined : dropDesc,
   }
 }
 

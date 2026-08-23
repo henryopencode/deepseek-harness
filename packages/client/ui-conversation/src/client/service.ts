@@ -18,7 +18,7 @@ import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attach
 import type { ComposerAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './input/blocks.ts'
-import type { DraftAttachmentId, SessionInputResolver } from './input/contract.ts'
+import type { DraftAttachmentId, DraftFileReference, SessionInputResolver } from './input/contract.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
 
 /**
@@ -59,11 +59,33 @@ export interface IConversation {
   loadOlder(): Promise<void>
 }
 
+/**
+ * UUID v4 that also works when the Web UI is served over plain HTTP by IP.
+ * Browsers expose randomUUID only in secure contexts; getRandomValues remains
+ * available in the IP-only deployment, with a last-resort byte source.
+ */
+function browserRandomUUID(): string {
+  const cryptoApi = (globalThis as {
+    crypto?: {
+      randomUUID?: () => string
+      getRandomValues?: (bytes: Uint8Array) => Uint8Array
+    }
+  }).crypto
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (typeof cryptoApi?.getRandomValues === 'function') cryptoApi.getRandomValues(bytes)
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256)
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 /** Create one browser-only draft descriptor; only its id enters input state. */
 function browserDraftAttachment(file: File): ComposerAttachment {
   return {
     kind: 'image',
-    id: crypto.randomUUID() as DraftAttachmentId,
+    id: browserRandomUUID() as DraftAttachmentId,
     previewUrl: URL.createObjectURL(file),
     file,
   }
@@ -146,6 +168,7 @@ export class ConversationController extends Service implements IConversation {
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
+    files: readonly DraftFileReference[],
     mode: InputSubmitMode,
     signal?: AbortSignal,
   ): Promise<SubmitOutcome> {
@@ -154,7 +177,17 @@ export class ConversationController extends Service implements IConversation {
       throw new Error('conversation.sendSession: one or more draft images are no longer available')
     }
     const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file))
-    const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
+    const content = [
+      ...uploaded,
+      ...files.map(file => ({
+        type: 'file' as const,
+        name: file.name,
+        path: file.path,
+        mediaType: file.mediaType,
+        bytes: file.bytes,
+      })),
+      ...(text === '' ? [] : [{ type: 'text' as const, text }]),
+    ]
     const result = await session.prompt(content, mode, signal)
     if (!result.ok) return { kind: 'error' }
     this.releaseDraftImages(attachments)
@@ -367,6 +400,8 @@ function bytesToBase64(data: Uint8Array): string {
   }
   return btoa(binary)
 }
+
+export { bytesToBase64 }
 
 function revokePreview(url: string): void {
   if (url.startsWith('blob:')) URL.revokeObjectURL(url)

@@ -13,11 +13,16 @@ export interface AttachmentRailItem {
   /** Stable identity for the React key. */
   id: string
   /** Object or data URL rendered as the thumbnail. */
-  previewUrl: string
+  previewUrl?: string
   /** Image alt text (display name with the owner's fallback applied). */
   alt: string
   /** Accessible label of the item's remove control. */
   removeLabel: string
+  /** Optional non-image card presentation. */
+  kind?: 'image' | 'file'
+  fileName?: string
+  fileMeta?: string
+  status?: 'uploading' | 'ready' | 'error'
 }
 
 /** Rail-level strings the owner resolves from its own locale namespace. */
@@ -168,11 +173,19 @@ export function AttachmentRail<T extends AttachmentRailItem>({ items, labels, on
           <div key={item.id} className={css.item}>
             <button
               type="button"
-              className={css.thumbnail}
+              className={clsx(css.thumbnail, item.kind === 'file' && css.fileThumbnail)}
               title={labels.open}
               onClick={() => { onOpen(item) }}
             >
-              <img src={item.previewUrl} alt={item.alt} />
+              {item.previewUrl === undefined
+                ? (
+                  <>
+                    <span className={css.fileGlyph} aria-hidden>{item.status === 'uploading' ? '…' : 'DOC'}</span>
+                    <span className={css.fileName} title={item.fileName ?? item.alt}>{item.fileName ?? item.alt}</span>
+                    {item.fileMeta !== undefined && <span className={css.fileMeta}>{item.fileMeta}</span>}
+                  </>
+                )
+                : <img src={item.previewUrl} alt={item.alt} />}
             </button>
             <button
               type="button"

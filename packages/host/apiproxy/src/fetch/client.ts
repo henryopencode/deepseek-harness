@@ -16,6 +16,7 @@ import { hostFrameSchema, muxFrameSchema } from '../api/events.schema.ts'
 import {
   hostCreateDirectoryValueSchema, hostDescribeValueSchema,
   hostListDirectoryValueSchema, hostOpenPathValueSchema, hostPickDirectoryValueSchema,
+  hostUploadDroppedFileValueSchema,
 } from '../api/host.schema.ts'
 import {
   sessionCancelValueSchema,
@@ -111,6 +112,7 @@ export interface IApiClient {
     listDirectory(payload: RequestPayload<'host.listDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.listDirectory'>>>
     createDirectory(payload: RequestPayload<'host.createDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.createDirectory'>>>
     openPath(payload: RequestPayload<'host.openPath'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.openPath'>>>
+    uploadDroppedFile(payload: RequestPayload<'host.uploadDroppedFile'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.uploadDroppedFile'>>>
   }
   workspace: {
     list(payload: RequestPayload<'workspace.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.list'>>>
@@ -191,6 +193,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'host.listDirectory': hostListDirectoryValueSchema,
   'host.createDirectory': hostCreateDirectoryValueSchema,
   'host.openPath': hostOpenPathValueSchema,
+  'host.uploadDroppedFile': hostUploadDroppedFileValueSchema,
   'workspace.list': workspaceListValueSchema,
   'workspace.create': workspaceCreateValueSchema,
   'workspace.rename': workspaceRenameValueSchema,
@@ -241,6 +244,30 @@ const INTERNAL_BASE = 'http://dsh.internal'
  * and observers subscribe via subscribeEnvelopes. The isomorphic point survives: an in-process
  * subclass whose doFetch is toFetchHandler(api).fetch never touches the network.
  */
+/**
+ * UUID v4 for browser and Node carriers. `crypto.randomUUID()` is restricted
+ * to secure browser contexts, while the IP-only HTTP deployment is not one;
+ * `getRandomValues()` remains available there, with a last-resort byte source
+ * for older embedded browsers.
+ */
+export function randomUUID(): string {
+  const cryptoApi = (globalThis as {
+    crypto?: {
+      randomUUID?: () => string
+      getRandomValues?: (bytes: Uint8Array) => Uint8Array
+    }
+  }).crypto
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (typeof cryptoApi?.getRandomValues === 'function') cryptoApi.getRandomValues(bytes)
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256)
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+
 export abstract class AbstractApiClient implements IApiClient {
   /** Instance-owned observation buffer (module-level state would leak across instances/tests). */
   private envelopeBatch: RpcMessage[] = []
@@ -296,8 +323,7 @@ export abstract class AbstractApiClient implements IApiClient {
   }
 
   protected mintRpcId(): RpcId {
-    // crypto.randomUUID is a Web API (browser + Node ≥19): keeps this base platform-neutral.
-    return RpcId(crypto.randomUUID())
+    return RpcId(randomUUID())
   }
 
   /**
@@ -441,6 +467,7 @@ export abstract class AbstractApiClient implements IApiClient {
     listDirectory: (payload, signal) => this.callUnary('host.listDirectory', payload, signal),
     createDirectory: (payload, signal) => this.callUnary('host.createDirectory', payload, signal),
     openPath: (payload, signal) => this.callUnary('host.openPath', payload, signal),
+    uploadDroppedFile: (payload, signal) => this.callUnary('host.uploadDroppedFile', payload, signal),
   }
 
   readonly workspace: IApiClient['workspace'] = {

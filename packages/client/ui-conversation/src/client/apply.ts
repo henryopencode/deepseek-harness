@@ -18,7 +18,7 @@ import type {
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { createChatStore } from './stores.ts'
-import { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
+import { bytesToBase64, ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
 import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './input/blocks.ts'
 import type { ComposerBlock } from './input/blocks.ts'
@@ -218,8 +218,10 @@ export function apply(ctx: Context): void {
           const from = inputHub.shell(sessionId)
           const draft = from.snapshot.draft
           const imageIds = from.snapshot.imageIds
+          const files = from.snapshot.files ?? []
           const next = inputHub.shell(nextId)
-          if (imageIds.length === 0 || next.addImages(imageIds)) {
+          if ((imageIds.length === 0 || next.addImages(imageIds))
+            && (files.length === 0 || next.addFiles(files))) {
             if (draft !== '') {
               next.setDraft(draft)
               from.setDraft('')
@@ -227,6 +229,7 @@ export function apply(ctx: Context): void {
             if (imageIds.length > 0) {
               for (const id of imageIds) from.removeImage(id)
             }
+            for (const file of files) from.removeFile(file.id)
           }
         }
         sessions.open(nextId)
@@ -294,6 +297,7 @@ export function apply(ctx: Context): void {
           addImages: undefined,
           removeImage: undefined,
           draftImages: undefined,
+          uploadDroppedFile: undefined,
           resolveSubmitMode: (running, gesture, steeringAvailable) =>
             submissionPolicy.resolve(running, gesture, steeringAvailable),
           toggleCommandMenu: undefined,
@@ -328,6 +332,12 @@ export function apply(ctx: Context): void {
           shell.removeImage(id)
         },
         draftImages: ids => conversation.draftImages(ids),
+        uploadDroppedFile: (file) => {
+          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd ?? ''
+          return file.arrayBuffer()
+            .then(buffer => bytesToBase64(new Uint8Array(buffer)))
+            .then(content => workspaces.uploadDroppedFile(file.name, content, cwd))
+        },
         resolveSubmitMode: (running, gesture, steeringAvailable) =>
           submissionPolicy.resolve(running, gesture, steeringAvailable),
         toggleCommandMenu: inputTriggers === undefined

@@ -74,6 +74,19 @@ export interface ImageBlock {
   attachment: ImageAttachmentRef
 }
 
+/** A durable workspace file reference attached by the user. */
+export interface FileBlock {
+  type: 'file'
+  /** Display name retained independently from the host path. */
+  name: string
+  /** Host-authorized absolute path inside the session workspace. */
+  path: string
+  /** Browser-declared media type; generic binary when unknown. */
+  mediaType: string
+  /** Host-observed byte size at admission time. */
+  bytes: number
+}
+
 /** A tool invocation requested by the model. */
 export interface ToolCallBlock {
   type: 'tool-call'
@@ -100,6 +113,7 @@ export interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
   'image': ImageBlock
+  'file': FileBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }
