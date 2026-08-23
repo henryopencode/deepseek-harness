@@ -82,7 +82,10 @@ export function InputBar({
     path: file.path,
   })), [input?.files])
   const displayedFileAttachments = useMemo(
-    () => [...fileAttachments, ...persistedFileAttachments.filter(persisted => !fileAttachments.some(file => file.path === persisted.path))],
+    () => [
+      ...fileAttachments,
+      ...persistedFileAttachments.filter(persisted => !fileAttachments.some(file => file.path === persisted.path)),
+    ],
     [fileAttachments, persistedFileAttachments],
   )
   // Transient error banner (machine notices, image-intake rejections, and
@@ -558,10 +561,12 @@ export function InputBar({
           bytes: stagedFile.size,
         }]
       })
-      if (refs.length > 0 && inputActions?.addFiles !== undefined && inputActions.addFiles(refs) === false) return
-      setFileAttachments(previous => previous.map(item => {
+      if (refs.length > 0 && inputActions?.addFiles?.(refs) === false) return
+      setFileAttachments(previous => previous.map((item) => {
         const result = results.find(candidate => candidate.id === item.id)
-        return result?.ok === true ? { ...item, status: 'ready', path: result.path } : result?.ok === false ? { ...item, status: 'error' } : item
+        if (result?.ok === true) return { ...item, status: 'ready', path: result.path }
+        if (result?.ok === false) return { ...item, status: 'error' }
+        return item
       }))
       if (failed.length > 0) showToast(t('file.pathUnavailable', { count: failed.length }))
     })

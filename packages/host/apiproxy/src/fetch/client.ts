@@ -249,6 +249,7 @@ const INTERNAL_BASE = 'http://dsh.internal'
  * to secure browser contexts, while the IP-only HTTP deployment is not one;
  * `getRandomValues()` remains available there, with a last-resort byte source
  * for older embedded browsers.
+ * @returns an RFC 4122 version 4 UUID.
  */
 export function randomUUID(): string {
   const cryptoApi = (globalThis as {
@@ -267,7 +268,9 @@ export function randomUUID(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-
+/**
+ * Shared API client that owns envelope observation and leaves transport to subclasses.
+ */
 export abstract class AbstractApiClient implements IApiClient {
   /** Instance-owned observation buffer (module-level state would leak across instances/tests). */
   private envelopeBatch: RpcMessage[] = []

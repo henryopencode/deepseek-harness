@@ -82,7 +82,7 @@ function fileReferenceText(block: Extract<ContentBlock, { type: 'file' }>): stri
 /** Join text blocks, optionally preserving an explicit marker for image history. */
 function flattenText(blocks: readonly ContentBlock[], includeImagePlaceholder = false): string {
   return blocks
-    .flatMap(block => {
+    .flatMap((block) => {
       if (block.type === 'text') return [block.text]
       if (block.type === 'file') return [fileReferenceText(block)]
       if (includeImagePlaceholder && block.type === 'image') return [TEXT_ONLY_IMAGE_PLACEHOLDER]

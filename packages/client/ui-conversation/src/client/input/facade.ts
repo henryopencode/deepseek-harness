@@ -185,6 +185,7 @@ export class SessionInputShell implements SessionInput {
    * the undo history is cut, so Ctrl/Cmd-Z cannot resurrect sent content
    * (the command path gets the same discipline from submit-settled success).
    * @param imageIds - admitted image ids to remove from this draft.
+   * @param fileIds - admitted file ids to remove from this draft.
    */
   commitSend(imageIds: readonly DraftAttachmentId[], fileIds: readonly string[] = []): void {
     const submitted = new Set(imageIds)

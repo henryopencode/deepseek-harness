@@ -160,6 +160,7 @@ export class ConversationController extends Service implements IConversation {
    * @param session - target session.
    * @param text - serialized prompt text.
    * @param imageIds - ordered draft-local attachment ids.
+   * @param files - ordered uploaded workspace-file references.
    * @param mode - queue or steer delivery selected by composer policy.
    * @param signal - optional cancellation for the complete Host admission.
    * @returns the Host admission outcome; local attachment preparation failures reject.
@@ -397,7 +398,7 @@ export class ConversationController extends Service implements IConversation {
       const width = Math.max(1, Math.round(bitmap.width * scale))
       const height = Math.max(1, Math.round(bitmap.height * scale))
       const tiles = Math.ceil(height / maxSide)
-      if (width === bitmap.width && height === bitmap.height && tiles === 1) return raw()
+      if (width === bitmap.width && height === bitmap.height && tiles === 1) return await raw()
       const outputType: ImageMediaType = mediaType === 'image/png' ? 'image/png'
         : mediaType === 'image/webp' ? 'image/webp' : 'image/jpeg'
       const output: SubmitImageAttachment[] = []
@@ -407,7 +408,7 @@ export class ConversationController extends Service implements IConversation {
         canvas.width = width
         canvas.height = tileHeight
         const context = canvas.getContext('2d')
-        if (context === null) return raw()
+        if (context === null) return await raw()
         context.drawImage(bitmap, 0, top / scale, bitmap.width, tileHeight / scale, 0, 0, width, tileHeight)
         const blob = await canvasBlob(canvas, outputType)
         output.push({
@@ -444,6 +445,11 @@ function imageMediaType(value: string): ImageMediaType {
   }
 }
 
+/**
+ * Encode binary image data as a browser base64 string without exceeding call-stack limits.
+ * @param data - binary data to encode.
+ * @returns a base64 representation of the supplied data.
+ */
 function bytesToBase64(data: Uint8Array): string {
   let binary = ''
   const chunk = 0x8000
