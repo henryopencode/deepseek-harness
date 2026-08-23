@@ -235,7 +235,7 @@ export class ConversationController extends Service implements IConversation {
     if (attachments.length !== imageIds.length) {
       throw new Error('conversation.serializeDraftImages: one or more draft images are no longer available')
     }
-    return Promise.all(attachments.map(attachment => this.encodeImage(attachment.file)))
+    return (await Promise.all(attachments.map(attachment => this.encodeImage(attachment.file)))).flat()
   }
 
   /**
@@ -366,18 +366,70 @@ export class ConversationController extends Service implements IConversation {
   }
 
   /** Convert browser files to canonical base64 prompt parts. */
-  private serializeImages(images: readonly File[]): Promise<Parameters<SessionFace['prompt']>[0]> {
-    return Promise.all(images.map(async file => ({ type: 'image' as const, ...await this.encodeImage(file) })))
+  private async serializeImages(images: readonly File[]): Promise<Parameters<SessionFace['prompt']>[0]> {
+    const groups = await Promise.all(images.map(file => this.encodeImage(file)))
+    return groups.flat().map(image => ({ type: 'image' as const, ...image }))
   }
 
-  /** Canonical base64 wire form of one browser image file. */
-  private async encodeImage(file: File): Promise<SubmitImageAttachment> {
-    return {
-      mediaType: imageMediaType(file.type),
+  /**
+   * Canonical wire form of one browser image. Long images are tiled for the
+   * upstream Vision API: the user keeps one attachment, while the model gets
+   * <=20 readable raster tiles whose sides do not exceed 2000px.
+   */
+  private async encodeImage(file: File): Promise<readonly SubmitImageAttachment[]> {
+    const mediaType = imageMediaType(file.type)
+    const raw = async (): Promise<readonly SubmitImageAttachment[]> => [{
+      mediaType,
       data: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
       ...(file.name === '' ? {} : { name: file.name }),
+    }]
+    if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') return raw()
+    let bitmap: ImageBitmap
+    try {
+      bitmap = await createImageBitmap(file)
+    } catch {
+      return raw()
+    }
+    try {
+      const maxSide = 2000
+      const maxTiles = 20
+      const scale = Math.min(1, maxSide / bitmap.width, maxSide * maxTiles / bitmap.height)
+      const width = Math.max(1, Math.round(bitmap.width * scale))
+      const height = Math.max(1, Math.round(bitmap.height * scale))
+      const tiles = Math.ceil(height / maxSide)
+      if (width === bitmap.width && height === bitmap.height && tiles === 1) return raw()
+      const outputType: ImageMediaType = mediaType === 'image/png' ? 'image/png'
+        : mediaType === 'image/webp' ? 'image/webp' : 'image/jpeg'
+      const output: SubmitImageAttachment[] = []
+      for (let top = 0, index = 0; top < height; top += maxSide, index += 1) {
+        const tileHeight = Math.min(maxSide, height - top)
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = tileHeight
+        const context = canvas.getContext('2d')
+        if (context === null) return raw()
+        context.drawImage(bitmap, 0, top / scale, bitmap.width, tileHeight / scale, 0, 0, width, tileHeight)
+        const blob = await canvasBlob(canvas, outputType)
+        output.push({
+          mediaType: outputType,
+          data: bytesToBase64(new Uint8Array(await blob.arrayBuffer())),
+          ...(file.name === '' ? {} : { name: tiles === 1 ? file.name : `${file.name} (${String(index + 1)}/${String(tiles)})` }),
+        })
+      }
+      return output
+    } finally {
+      bitmap.close()
     }
   }
+}
+
+function canvasBlob(canvas: HTMLCanvasElement, type: ImageMediaType): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob === null) reject(new Error('browser could not encode image tile'))
+      else resolve(blob)
+    }, type, type === 'image/jpeg' ? 0.9 : undefined)
+  })
 }
 
 function imageMediaType(value: string): ImageMediaType {
