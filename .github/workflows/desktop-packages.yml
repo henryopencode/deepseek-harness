@@ -17,9 +17,25 @@ on:
 permissions:
   contents: write
 
+env:
+  DESKTOP_RELEASE_TAG: v0.2.0
+
 jobs:
+  prepare-release:
+    name: Prepare v0.2.0 release
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "DeepSeek Harness Desktop v0.2.0" \
+              --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon and Windows x64."
+
   package:
     name: ${{ matrix.name }}
+    needs: prepare-release
     strategy:
       fail-fast: false
       matrix:
@@ -45,22 +61,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.artifact }}
-          path: release/${{ matrix.artifact }}
-          if-no-files-found: error
-
-  release:
-    name: Publish desktop assets
-    needs: package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v7
-        with:
-          pattern: DeepSeek-Harness-*.zip
-          merge-multiple: true
-          path: desktop-assets
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload v0.1.0-desktop.1 desktop-assets/*.zip --repo ${{ github.repository }} --clobber
+        run: gh release upload "$DESKTOP_RELEASE_TAG" release/${{ matrix.artifact }} --repo "$GITHUB_REPOSITORY" --clobber
