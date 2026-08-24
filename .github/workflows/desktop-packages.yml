@@ -2,17 +2,13 @@ name: Desktop Packages
 
 on:
   workflow_dispatch:
-  push:
-    branches: [master]
-    paths:
-      - 'apps/desktop/**'
-      - 'apps/cli/**'
-      - 'apps/web/**'
-      - 'packages/**'
-      - 'vendor/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
+    inputs:
+      target:
+        description: Platform package to build
+        required: true
+        default: all
+        type: choice
+        options: [all, linux, macos, windows]
 
 permissions:
   contents: write
@@ -24,6 +20,8 @@ jobs:
   prepare-release:
     name: Prepare v0.2.0 release
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.package-matrix.outputs.value }}
     steps:
       - env:
           GH_TOKEN: ${{ github.token }}
@@ -31,25 +29,26 @@ jobs:
           gh release view "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "DeepSeek Harness Desktop v0.2.0" \
-              --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon and Windows x64."
+              --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon, Linux x64, and Windows x64."
+      - id: package-matrix
+        env:
+          TARGET: ${{ github.event.inputs.target || 'all' }}
+        run: |
+          case "$TARGET" in
+            all) value='{"include":[{"name":"macOS arm64","os":"macos-14","platform":"darwin","arch":"arm64","artifact":"DeepSeek-Harness-macos-arm64.zip"},{"name":"Linux x64","os":"ubuntu-latest","platform":"linux","arch":"x64","artifact":"DeepSeek-Harness-linux-x64.tar.gz"},{"name":"Windows x64","os":"windows-latest","platform":"win32","arch":"x64","artifact":"DeepSeek-Harness-windows-x64.zip"}]}' ;;
+            linux) value='{"include":[{"name":"Linux x64","os":"ubuntu-latest","platform":"linux","arch":"x64","artifact":"DeepSeek-Harness-linux-x64.tar.gz"}]}' ;;
+            macos) value='{"include":[{"name":"macOS arm64","os":"macos-14","platform":"darwin","arch":"arm64","artifact":"DeepSeek-Harness-macos-arm64.zip"}]}' ;;
+            windows) value='{"include":[{"name":"Windows x64","os":"windows-latest","platform":"win32","arch":"x64","artifact":"DeepSeek-Harness-windows-x64.zip"}]}' ;;
+            *) echo "unsupported desktop package target: $TARGET" >&2; exit 1 ;;
+          esac
+          echo "value=$value" >> "$GITHUB_OUTPUT"
 
   package:
     name: ${{ matrix.name }}
     needs: prepare-release
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: macOS arm64
-            os: macos-14
-            platform: darwin
-            arch: arm64
-            artifact: DeepSeek-Harness-macos-arm64.zip
-          - name: Windows x64
-            os: windows-latest
-            platform: win32
-            arch: x64
-            artifact: DeepSeek-Harness-windows-x64.zip
+      matrix: ${{ fromJSON(needs.prepare-release.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -58,9 +57,15 @@ jobs:
         with:
           node-version: 22.21.1
           cache: pnpm
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
-      - run: pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+      - env:
+          ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
+        run: pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
       - env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh

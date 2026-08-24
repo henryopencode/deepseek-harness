@@ -12,6 +12,8 @@
 pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform darwin --arch arm64
 ```
 
-打包脚本会在 `release/` 下生成可直接运行的归档。它支持 `darwin/arm64` 与 `win32/x64`；Windows 包必须在 Windows 上构建，确保暂存的 Node 原生依赖匹配平台。GitHub `Desktop Packages` workflow 会构建两个原生产物。
+打包脚本会在 `release/` 下生成可直接运行的归档。它支持 `darwin/arm64`、`linux/x64` 与 `win32/x64`；每个包都必须在对应操作系统上构建，确保暂存的 Node 原生依赖匹配平台。Linux x64 归档解压后是一个可执行文件夹；在解压目录运行 `./DeepSeek\ Harness-linux-x64/DeepSeek\ Harness`。GitHub `Desktop Packages` workflow 会构建三个原生产物。
 
-仓库未提供 Developer ID 或 Authenticode 证书，因此下载归档首次启动时可能出现平台信任警告。macOS 可按住 Control 点击 → 打开，Windows 可选择更多信息 → 仍要运行。
+仓库未提供 Developer ID、Linux 包签名或 Authenticode 证书，因此下载归档首次启动时可能出现平台信任警告。macOS 可按住 Control 点击 → 打开，Windows 可选择更多信息 → 仍要运行，Linux 桌面环境可能需要将解压后的可执行文件标为受信任。
+
+首次本地语音转写仍需要宿主机具备 `ffmpeg`、`ffprobe`、CMake 和 C/C++ 工具链；Whisper 模型会下载到 Harness home。

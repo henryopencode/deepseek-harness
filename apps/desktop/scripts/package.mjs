@@ -31,7 +31,7 @@ function run(command, commandArgs, options = {}) {
 
 /** Copy the Node runtime that matches the dependencies staged for this platform. */
 async function copyNodeRuntime(target) {
-  if (platform === 'darwin') {
+  if (platform !== 'win32') {
     await cp(process.execPath, join(target, 'node'), { force: true })
     return
   }
@@ -40,8 +40,8 @@ async function copyNodeRuntime(target) {
 
 /** Package a runnable Electron shell, then add the built Harness and Node runtime. */
 async function main() {
-  if (!['darwin', 'win32'].includes(platform)) {
-    throw new Error(`desktop package only supports darwin or win32, got ${platform}`)
+  if (!['darwin', 'linux', 'win32'].includes(platform)) {
+    throw new Error(`desktop package only supports darwin, linux, or win32, got ${platform}`)
   }
   await rm(stageDirectory, { recursive: true, force: true })
   await mkdir(stageDirectory, { recursive: true })
@@ -70,6 +70,7 @@ async function main() {
     '--ignore=node_modules',
     '--prune=false',
     `--electron-version=${electronPackage.version}`,
+    ...process.env.ELECTRON_CACHE === undefined ? [] : [`--download.cacheRoot=${process.env.ELECTRON_CACHE}`],
     ...(platform === 'darwin' ? [`--extend-info=${join(desktopDirectory, 'build', 'Info.plist')}`] : []),
   ], { cwd: repositoryDirectory })
   const folderName = `${packageName}-${platform}-${arch}`
@@ -83,13 +84,17 @@ async function main() {
     await run('codesign', ['--force', '--deep', '--sign', '-', join(packageDirectory, `${packageName}.app`)])
   }
   await mkdir(releaseDirectory, { recursive: true })
-  const archiveName = platform === 'darwin'
-    ? 'DeepSeek-Harness-macos-arm64.zip'
-    : 'DeepSeek-Harness-windows-x64.zip'
+  const archiveName = {
+    darwin: 'DeepSeek-Harness-macos-arm64.zip',
+    linux: 'DeepSeek-Harness-linux-x64.tar.gz',
+    win32: 'DeepSeek-Harness-windows-x64.zip',
+  }[platform]
   const archive = join(releaseDirectory, archiveName)
   await rm(archive, { force: true })
   if (platform === 'darwin') {
     await run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', join(packageDirectory, `${packageName}.app`), archive])
+  } else if (platform === 'linux') {
+    await run('tar', ['-c', '-z', '-f', archive, folderName], { cwd: packagedDirectory })
   } else {
     await run('tar', ['-a', '-c', '-f', archive, folderName], { cwd: packagedDirectory })
   }
