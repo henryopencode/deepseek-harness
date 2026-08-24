@@ -63,4 +63,5 @@ jobs:
       - run: pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$DESKTOP_RELEASE_TAG" release/${{ matrix.artifact }} --repo "$GITHUB_REPOSITORY" --clobber
+        shell: pwsh
+        run: gh release upload $env:DESKTOP_RELEASE_TAG release/${{ matrix.artifact }} --repo $env:GITHUB_REPOSITORY --clobber
