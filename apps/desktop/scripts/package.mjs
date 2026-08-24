@@ -19,7 +19,11 @@ const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 /** Run one build command and reject with its exit status. */
 function run(command, commandArgs, options = {}) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(command, commandArgs, { stdio: 'inherit', ...options })
+    const child = spawn(command, commandArgs, {
+      stdio: 'inherit',
+      ...options,
+      ...process.platform === 'win32' && command === pnpmCommand ? { shell: true } : {},
+    })
     child.once('error', reject)
     child.once('exit', code => code === 0 ? resolveRun() : reject(new Error(`${command} exited with ${String(code)}`)))
   })
