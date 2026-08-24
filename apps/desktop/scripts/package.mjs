@@ -15,6 +15,7 @@ const stageDirectory = join(tmpdir(), 'dsh-desktop-stage', `${platform}-${arch}`
 const releaseDirectory = join(repositoryDirectory, 'release')
 const packageName = 'DeepSeek Harness'
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+const makensisExecutable = process.env.NSIS_MAKENSIS ?? 'makensis.exe'
 
 /** Run one build command and reject with its exit status. */
 function run(command, commandArgs, options = {}) {
@@ -74,7 +75,7 @@ Section "Uninstall"
   RMDir /r "$INSTDIR"
 SectionEnd
 `)
-  await run('makensis.exe', [installerScript])
+  await run(makensisExecutable, [installerScript])
 }
 
 /** Package a runnable Electron shell, then add the built Harness and Node runtime. */

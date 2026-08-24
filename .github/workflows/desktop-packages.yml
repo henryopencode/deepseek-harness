@@ -61,10 +61,14 @@ jobs:
         with:
           path: ${{ runner.temp }}/electron-cache
           key: electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - if: matrix.platform == 'win32'
+        shell: pwsh
+        run: choco install nsis --yes --no-progress
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - env:
           ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
+          NSIS_MAKENSIS: 'C:\Program Files (x86)\NSIS\makensis.exe'
         run: pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
       - if: matrix.platform == 'win32'
         shell: pwsh
