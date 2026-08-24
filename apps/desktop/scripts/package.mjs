@@ -51,7 +51,6 @@ Name "DeepSeek Harness"
 OutFile "${installer}"
 InstallDir "$LOCALAPPDATA\Programs\DeepSeek Harness"
 RequestExecutionLevel user
-SetShellVarContext current
 SetCompressor /SOLID lzma
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -61,6 +60,7 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 Section "Install"
+  SetShellVarContext current
   SetOutPath "$INSTDIR"
   File /r "${join(packageDirectory, '*')}"
   CreateDirectory "$SMPROGRAMS\DeepSeek Harness"
@@ -70,6 +70,7 @@ Section "Install"
   WriteUninstaller "$INSTDIR\Uninstall DeepSeek Harness.exe"
 SectionEnd
 Section "Uninstall"
+  SetShellVarContext current
   Delete "$DESKTOP\DeepSeek Harness.lnk"
   RMDir /r "$SMPROGRAMS\DeepSeek Harness"
   RMDir /r "$INSTDIR"
