@@ -18,6 +18,34 @@ const inheritedEnvironment = process.env
 const childPath = process.platform === 'win32'
   ? `${dirname(nodeExecutable)};${inheritedEnvironment.SystemRoot ?? 'C:\\Windows'}\\System32;${inheritedEnvironment.SystemRoot ?? 'C:\\Windows'}`
   : `${dirname(nodeExecutable)}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`
+const homeDirectory = inheritedEnvironment.HOME ?? inheritedEnvironment.USERPROFILE
+const temporaryDirectory = inheritedEnvironment.TMPDIR ?? inheritedEnvironment.TEMP ?? inheritedEnvironment.TMP
+const proxyEnvironment = Object.fromEntries(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'].flatMap(name => {
+  const value = inheritedEnvironment[name] ?? inheritedEnvironment[name.toLowerCase()]
+  return value === undefined || value === '' ? [] : [[name, value]]
+}))
+const childEnvironment = Object.fromEntries([
+  ['HOME', homeDirectory],
+  ['USER', inheritedEnvironment.USER ?? inheritedEnvironment.USERNAME],
+  ['LOGNAME', inheritedEnvironment.LOGNAME ?? inheritedEnvironment.USERNAME],
+  ['LANG', inheritedEnvironment.LANG ?? 'en_US.UTF-8'],
+  ['TMPDIR', temporaryDirectory],
+  ['PATH', childPath],
+  ...process.platform === 'win32' ? [
+    ['APPDATA', inheritedEnvironment.APPDATA],
+    ['ComSpec', inheritedEnvironment.ComSpec],
+    ['HOMEDRIVE', inheritedEnvironment.HOMEDRIVE],
+    ['HOMEPATH', inheritedEnvironment.HOMEPATH],
+    ['LOCALAPPDATA', inheritedEnvironment.LOCALAPPDATA],
+    ['PATHEXT', inheritedEnvironment.PATHEXT],
+    ['SystemRoot', inheritedEnvironment.SystemRoot],
+    ['TEMP', inheritedEnvironment.TEMP],
+    ['TMP', inheritedEnvironment.TMP],
+    ['USERPROFILE', inheritedEnvironment.USERPROFILE],
+    ['WINDIR', inheritedEnvironment.WINDIR],
+  ] : [],
+  ...Object.entries(proxyEnvironment),
+].filter(([, value]) => value !== undefined && value !== ''))
 
 let mainWindow
 let harnessProcess
@@ -116,24 +144,7 @@ async function startHarness() {
     detached: process.platform !== 'win32',
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      HOME: inheritedEnvironment.HOME,
-      USER: inheritedEnvironment.USER,
-      LOGNAME: inheritedEnvironment.LOGNAME,
-      LANG: inheritedEnvironment.LANG ?? 'en_US.UTF-8',
-      TMPDIR: inheritedEnvironment.TMPDIR,
-      PATH: childPath,
-      ...process.platform === 'win32' ? {
-        SystemRoot: inheritedEnvironment.SystemRoot,
-        WINDIR: inheritedEnvironment.WINDIR,
-        ComSpec: inheritedEnvironment.ComSpec,
-        PATHEXT: inheritedEnvironment.PATHEXT,
-      } : {},
-      ...Object.fromEntries(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'].flatMap(name => {
-        const value = inheritedEnvironment[name] ?? inheritedEnvironment[name.toLowerCase()]
-        return value === undefined || value === '' ? [] : [[name, value]]
-      })),
-    },
+    env: childEnvironment,
   })
   harnessProcess.stdout.on('data', data => appendHarnessLog(String(data)))
   harnessProcess.stderr.on('data', data => {
