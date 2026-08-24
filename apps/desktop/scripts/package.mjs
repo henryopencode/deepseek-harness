@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, rm } from 'node:fs/promises'
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -36,6 +36,45 @@ async function copyNodeRuntime(target) {
     return
   }
   await cp(dirname(process.execPath), target, { recursive: true, dereference: true })
+}
+
+/** Build the per-user Windows installer and its desktop and Start Menu shortcuts. */
+async function packageWindowsInstaller(packageDirectory) {
+  const installer = join(releaseDirectory, 'DeepSeek-Harness-Setup-x64.exe')
+  const installerScript = join(stageDirectory, 'DeepSeek-Harness.nsi')
+  await rm(installer, { force: true })
+  await writeFile(installerScript, String.raw`Unicode true
+!include "MUI2.nsh"
+!define MUI_ABORTWARNING
+Name "DeepSeek Harness"
+OutFile "${installer}"
+InstallDir "$LOCALAPPDATA\Programs\DeepSeek Harness"
+RequestExecutionLevel user
+SetShellVarContext current
+SetCompressor /SOLID lzma
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_PAGE_FINISH
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+!insertmacro MUI_LANGUAGE "SimpChinese"
+Section "Install"
+  SetOutPath "$INSTDIR"
+  File /r "${join(packageDirectory, '*')}"
+  CreateDirectory "$SMPROGRAMS\DeepSeek Harness"
+  CreateShortCut "$DESKTOP\DeepSeek Harness.lnk" "$INSTDIR\DeepSeek Harness.exe"
+  CreateShortCut "$SMPROGRAMS\DeepSeek Harness\DeepSeek Harness.lnk" "$INSTDIR\DeepSeek Harness.exe"
+  CreateShortCut "$SMPROGRAMS\DeepSeek Harness\卸载 DeepSeek Harness.lnk" "$INSTDIR\Uninstall DeepSeek Harness.exe"
+  WriteUninstaller "$INSTDIR\Uninstall DeepSeek Harness.exe"
+SectionEnd
+Section "Uninstall"
+  Delete "$DESKTOP\DeepSeek Harness.lnk"
+  RMDir /r "$SMPROGRAMS\DeepSeek Harness"
+  RMDir /r "$INSTDIR"
+SectionEnd
+`)
+  await run('makensis.exe', [installerScript])
 }
 
 /** Package a runnable Electron shell, then add the built Harness and Node runtime. */
@@ -99,6 +138,7 @@ async function main() {
   } else {
     await run('tar', ['-a', '-c', '-f', archive, folderName], { cwd: packagedDirectory })
   }
+  if (platform === 'win32') await packageWindowsInstaller(packageDirectory)
   process.stdout.write(`desktop package: ${archive}\n`)
 }
 

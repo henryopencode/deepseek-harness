@@ -29,7 +29,7 @@ jobs:
           gh release view "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "DeepSeek Harness Desktop v0.2.0" \
-              --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon, Linux x64, and Windows x64."
+              --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon, Linux x64, and Windows x64, including the Windows installer."
       - id: package-matrix
         env:
           TARGET: ${{ github.event.inputs.target || 'all' }}
@@ -71,6 +71,22 @@ jobs:
         run: |
           $longestPath = tar -tf release/${{ matrix.artifact }} | ForEach-Object Length | Measure-Object -Maximum
           if ($longestPath.Maximum -gt 220) { throw "Windows archive path is $($longestPath.Maximum) characters; keep it at or below 220." }
+      - if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          $installer = 'release/DeepSeek-Harness-Setup-x64.exe'
+          $installDirectory = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness'
+          & $installer /S
+          if (!(Test-Path (Join-Path $installDirectory 'DeepSeek Harness.exe'))) { throw 'installer did not place the application executable' }
+          if (!(Test-Path (Join-Path $env:USERPROFILE 'Desktop\DeepSeek Harness.lnk'))) { throw 'installer did not create the desktop shortcut' }
+          if (!(Test-Path (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\DeepSeek Harness\DeepSeek Harness.lnk'))) { throw 'installer did not create the Start Menu shortcut' }
+          & (Join-Path $installDirectory 'Uninstall DeepSeek Harness.exe') /S
+          if (Test-Path $installDirectory) { throw 'uninstaller did not remove the installation directory' }
+      - if: matrix.platform == 'win32'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release upload $env:DESKTOP_RELEASE_TAG release/DeepSeek-Harness-Setup-x64.exe --repo $env:GITHUB_REPOSITORY --clobber
       - env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
