@@ -81,8 +81,8 @@ jobs:
         run: |
           $installer = 'release/DeepSeek-Harness-Setup-x64.exe'
           $installDirectory = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness'
-          & $installer /S "/D=$installDirectory"
-          if ($LASTEXITCODE -ne 0) { throw "installer exited with $LASTEXITCODE" }
+          $installResult = Start-Process -FilePath (Resolve-Path $installer) -ArgumentList @('/S', "/D=$installDirectory") -Wait -PassThru
+          if ($installResult.ExitCode -ne 0) { throw "installer exited with $($installResult.ExitCode)" }
           $application = Join-Path $installDirectory 'DeepSeek Harness.exe'
           if (!(Test-Path $application)) {
             Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -Recurse | Select-Object -ExpandProperty FullName
@@ -90,7 +90,8 @@ jobs:
           }
           if (!(Test-Path (Join-Path $env:USERPROFILE 'Desktop\DeepSeek Harness.lnk'))) { throw 'installer did not create the desktop shortcut' }
           if (!(Test-Path (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\DeepSeek Harness\DeepSeek Harness.lnk'))) { throw 'installer did not create the Start Menu shortcut' }
-          & (Join-Path $installDirectory 'Uninstall DeepSeek Harness.exe') /S
+          $uninstallResult = Start-Process -FilePath (Join-Path $installDirectory 'Uninstall DeepSeek Harness.exe') -ArgumentList '/S' -Wait -PassThru
+          if ($uninstallResult.ExitCode -ne 0) { throw "uninstaller exited with $($uninstallResult.ExitCode)" }
           if (Test-Path $installDirectory) { throw 'uninstaller did not remove the installation directory' }
       - if: matrix.platform == 'win32'
         env:

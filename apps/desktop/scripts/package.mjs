@@ -52,7 +52,7 @@ Name "DeepSeek Harness"
 OutFile "${installer}"
 InstallDir "$LOCALAPPDATA\Programs\DeepSeek Harness"
 RequestExecutionLevel user
-SetCompressor /SOLID lzma
+SetCompressor /SOLID zlib
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
