@@ -66,6 +66,11 @@ jobs:
       - env:
           ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
         run: pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+      - if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          $longestPath = tar -tf release/${{ matrix.artifact }} | ForEach-Object Length | Measure-Object -Maximum
+          if ($longestPath.Maximum -gt 220) { throw "Windows archive path is $($longestPath.Maximum) characters; keep it at or below 220." }
       - env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh

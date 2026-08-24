@@ -12,7 +12,7 @@ The browser profile needs a native application that owns its local web process a
 
 `apps/desktop` provides an Electron main process that reserves a private loopback port, starts the packaged `dsh web` CLI with a clean environment, renders the local URL in a sandboxed `BrowserWindow`, grants microphone access only to that loopback page, and terminates its owned process tree on quit.
 
-The package script first runs `pnpm deploy` from the desktop dependency root. This produces a platform-matched, self-contained runtime closure under Electron resources rather than copying pnpm workspace links that point back to a build machine. The package also carries a matching Node executable. macOS archives an ARM64 `.app`; Linux archives an x64 executable folder as `.tar.gz`; Windows archives an x64 folder containing the `.exe`. The GitHub `Desktop Packages` workflow builds each platform on its native runner and uploads all archives to the desktop release.
+The package script first runs `pnpm deploy` from the desktop dependency root with pnpm's hoisted node linker. This produces a platform-matched, self-contained runtime closure under Electron resources rather than copying pnpm workspace links that point back to a build machine or preserving deep virtual-store paths that Windows Explorer cannot extract. The package also carries a matching Node executable. macOS archives an ARM64 `.app`; Linux archives an x64 executable folder as `.tar.gz`; Windows archives an x64 folder containing the `.exe`. The GitHub `Desktop Packages` workflow builds each platform on its native runner, verifies Windows archive paths stay within 220 characters, and uploads all archives to the desktop release.
 
 ## Alternatives considered
 

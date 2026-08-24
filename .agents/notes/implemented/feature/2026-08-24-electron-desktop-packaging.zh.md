@@ -12,7 +12,7 @@ Status: implemented
 
 `apps/desktop` 提供一个 Electron 主进程：它保留私有 loopback 端口，在干净环境中启动打包后的 `dsh web` CLI，在沙箱化 `BrowserWindow` 中渲染本地 URL，只向该 loopback 页面授予麦克风权限，并在退出时终止它拥有的进程树。
 
-打包脚本先从桌面依赖根运行 `pnpm deploy`。这会在 Electron resources 下生成平台匹配、自包含的运行时闭包，不复制会回指构建机器的 pnpm 工作区链接。包还携带匹配的 Node 可执行文件。macOS 归档 ARM64 `.app`；Linux 将 x64 可执行文件夹归档为 `.tar.gz`；Windows 归档包含 `.exe` 的 x64 文件夹。GitHub `Desktop Packages` workflow 在各自原生 runner 上构建三个平台，并将全部归档上传到桌面 Release。
+打包脚本先从桌面依赖根以 pnpm 的 hoisted node linker 运行 `pnpm deploy`。这会在 Electron resources 下生成平台匹配、自包含的运行时闭包，不复制会回指构建机器的 pnpm 工作区链接，也不会保留 Windows 资源管理器无法解压的深层虚拟仓库路径。包还携带匹配的 Node 可执行文件。macOS 归档 ARM64 `.app`；Linux 将 x64 可执行文件夹归档为 `.tar.gz`；Windows 归档包含 `.exe` 的 x64 文件夹。GitHub `Desktop Packages` workflow 在各自原生 runner 上构建三个平台，验证 Windows 归档路径不超过 220 个字符，并将全部归档上传到桌面 Release。
 
 ## Alternatives considered
 

@@ -47,6 +47,7 @@ async function main() {
   await mkdir(stageDirectory, { recursive: true })
   const harnessDirectory = join(stageDirectory, 'harness')
   await run(pnpmCommand, [
+    '--config.node-linker=hoisted',
     '--filter', '@deepseek-ai/dsh-desktop',
     'deploy', '--legacy', harnessDirectory,
   ], { cwd: repositoryDirectory })
