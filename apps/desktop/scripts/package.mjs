@@ -11,7 +11,8 @@ const args = new Map(process.argv.slice(2).flatMap((value, index, all) =>
   value.startsWith('--') ? [[value.slice(2), all[index + 1]]] : []))
 const platform = args.get('platform') ?? process.platform
 const arch = args.get('arch') ?? process.arch
-const stageDirectory = join(tmpdir(), 'dsh-desktop-stage', `${platform}-${arch}`)
+const stageRoot = process.env.DSH_DESKTOP_STAGE_ROOT ?? join(tmpdir(), 'dsh-desktop-stage')
+const stageDirectory = join(stageRoot, `${platform}-${arch}`)
 const releaseDirectory = join(repositoryDirectory, 'release')
 const packageName = 'DeepSeek Harness'
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'

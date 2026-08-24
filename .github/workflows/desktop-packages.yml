@@ -67,6 +67,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - env:
+          DSH_DESKTOP_STAGE_ROOT: 'D:\dsh-stage'
           ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
           NSIS_MAKENSIS: 'C:\Program Files (x86)\NSIS\makensis.exe'
         run: pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
