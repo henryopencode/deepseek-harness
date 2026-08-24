@@ -14,6 +14,7 @@ const arch = args.get('arch') ?? process.arch
 const stageDirectory = join(tmpdir(), 'dsh-desktop-stage', `${platform}-${arch}`)
 const releaseDirectory = join(repositoryDirectory, 'release')
 const packageName = 'DeepSeek Harness'
+const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 
 /** Run one build command and reject with its exit status. */
 function run(command, commandArgs, options = {}) {
@@ -41,7 +42,7 @@ async function main() {
   await rm(stageDirectory, { recursive: true, force: true })
   await mkdir(stageDirectory, { recursive: true })
   const harnessDirectory = join(stageDirectory, 'harness')
-  await run('pnpm', [
+  await run(pnpmCommand, [
     '--filter', '@deepseek-ai/dsh-desktop',
     'deploy', '--legacy', harnessDirectory,
   ], { cwd: repositoryDirectory })
