@@ -1626,6 +1626,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'speechToTextLocal',
+    summary: 'Local Whisper Remote; one process-wide model operation runs at a time.',
+    description: 'Local Whisper Remote; one process-wide model operation runs at a time.',
+    methods: [
+      {
+        signature: '@Remote(\'describe\') async describe(): Promise<SpeechToTextDescription>',
+        description: 'Describe the resolved model and authoritative recording limits.',
+        parameters: [],
+        returns: 'immutable limits plus whether the first-use download is already complete.',
+      },
+      {
+        signature: '@Remote(\'transcribe\') async transcribe(request: SpeechTranscriptionRequest): Promise<SpeechTranscriptionResult>',
+        description: 'Validate, probe, and transcribe one browser recording locally.',
+        parameters: [{ name: 'request', description: 'canonical base64 audio and its browser media type.' }],
+        returns: 'recognized text or a stable admission/provider failure.',
+      },
+    ],
+  },
+  {
     key: 'spillStore',
     summary: 'Abstract spill storage service.',
     description: 'Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis\' standard duplicate-service behavior).\n\nSemantics every implementation must honor:\n\n- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.\n- Storage is scoped by the request\'s SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller\'s `suggestedName`.\n- `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).',
@@ -4211,6 +4230,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SpawnTeammateResult',
     declaration: 'export interface SpawnTeammateResult {\n    readonly member: TeamMemberView;\n}',
+  },
+  {
+    name: 'SpeechToTextDescription',
+    declaration: 'export interface SpeechToTextDescription {\n    readonly model: SpeechToTextModel;\n    readonly maxAudioBytes: number;\n    readonly maxAudioDurationMs: number;\n    readonly modelReady: boolean;\n}',
+  },
+  {
+    name: 'SpeechToTextModel',
+    declaration: 'export type SpeechToTextModel = Exclude<SpeechToTextModelPreference, \'auto\'>;',
+  },
+  {
+    name: 'SpeechToTextModelPreference',
+    declaration: 'export type SpeechToTextModelPreference = \'auto\' | \'base\' | \'small\';',
+  },
+  {
+    name: 'SpeechTranscriptionFailure',
+    declaration: 'export type SpeechTranscriptionFailure = {\n    readonly code: \'busy\';\n    readonly message: string;\n} | {\n    readonly code: \'invalid-audio\';\n    readonly message: string;\n} | {\n    readonly code: \'audio-too-large\';\n    readonly message: string;\n    readonly maxBytes: number;\n} | {\n    readonly code: \'audio-too-long\';\n    readonly message: string;\n    readonly maxDurationMs: number;\n} | {\n    readonly code: \'no-speech\';\n    readonly message: string;\n} | {\n    readonly code: \'transcription-failed\';\n    readonly message: string;\n};',
+  },
+  {
+    name: 'SpeechTranscriptionRequest',
+    declaration: 'export interface SpeechTranscriptionRequest {\n    readonly audio: string;\n    readonly mediaType: string;\n}',
+  },
+  {
+    name: 'SpeechTranscriptionResult',
+    declaration: 'export type SpeechTranscriptionResult = {\n    readonly ok: true;\n    readonly value: {\n        readonly text: string;\n        readonly model: SpeechToTextModel;\n    };\n} | {\n    readonly ok: false;\n    readonly error: SpeechTranscriptionFailure;\n};',
   },
   {
     name: 'SpillLocator',

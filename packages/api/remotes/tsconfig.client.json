@@ -55,6 +55,9 @@
       "path": "../../settings/settings"
     },
     {
+      "path": "../../speech/speech-to-text-local"
+    },
+    {
       "path": "../../typert/protocol"
     }
   ]

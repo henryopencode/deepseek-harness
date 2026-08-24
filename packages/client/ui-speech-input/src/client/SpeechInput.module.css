@@ -1,0 +1,114 @@
+/* The active strip overlays the resident tool row while leaving its primary send circle visible. */
+
+.triggerWrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.microphone,
+.secondary {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: none;
+  border-radius: 999px;
+  background: var(--dsw-specific-selector);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.microphone {
+  width: 28px;
+  height: 28px;
+}
+
+.secondary {
+  width: 34px;
+  height: 34px;
+}
+
+.microphone:hover:not(:disabled),
+.secondary:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+.microphone:focus-visible,
+.secondary:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+.microphone:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.strip {
+  position: absolute;
+  z-index: 3;
+  right: 54px;
+  bottom: 6px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 34px;
+  border-radius: 17px;
+  background: var(--dsw-specific-input-major);
+}
+
+.waveform {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  min-width: 0;
+  height: 24px;
+  overflow: hidden;
+}
+
+.wave,
+.waveRecent {
+  flex: 1 1 3px;
+  min-width: 1px;
+  max-width: 4px;
+  height: max(3px, calc(var(--speech-level) * 15px));
+  border-radius: 999px;
+  background: var(--dsw-alias-label-caption);
+  transition: height 70ms ease-out;
+}
+
+.waveRecent {
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.statusText {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spinner {
+  flex: none;
+  animation: speech-input-spin 900ms linear infinite;
+}
+
+@keyframes speech-input-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave,
+  .waveRecent {
+    transition: none;
+  }
+
+  .spinner {
+    animation-duration: 1800ms;
+  }
+}

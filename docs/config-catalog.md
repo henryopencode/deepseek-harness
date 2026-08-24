@@ -2009,6 +2009,39 @@ export interface Config {
 
 Source: [`packages/skill/skill-filesystem/src/index.ts:49`](../packages/skill/skill-filesystem/src/index.ts)
 
+<a id="deepseek-aidsh-speech-to-text-local"></a>
+
+## `@deepseek-ai/dsh-speech-to-text-local`
+
+```ts config-catalog
+/** Local model, admission, and executable policy. */
+export interface Config {
+  /** `auto` selects base at or below 4 GiB and small above it. */
+  readonly model: SpeechToTextModelPreference
+  /** Directory holding downloaded ggml model files. */
+  readonly modelRootPath: string
+  /** Download the selected model on its first use when absent. */
+  readonly autoDownload: boolean
+  /** Whisper language selector; `auto` performs language detection. */
+  readonly language: string
+  /** Maximum decoded recording bytes admitted from the browser. */
+  readonly maxAudioBytes: number
+  /** Maximum media duration admitted after ffprobe inspection. */
+  readonly maxAudioDurationMs: number
+  /** Executable path or PATH name used for duration inspection. */
+  readonly ffprobePath: string
+  /** Deadline for ffprobe inspection. */
+  readonly probeTimeoutMs: number
+  /** Allow whisper.cpp to use its available GPU backend. */
+  readonly useGpu: boolean
+}
+
+/** Deployment preference before the Host resolves available memory. */
+export type SpeechToTextModelPreference = 'auto' | 'base' | 'small'
+```
+
+Source: [`packages/speech/speech-to-text-local/src/index.ts:27`](../packages/speech/speech-to-text-local/src/index.ts)
+
 <a id="deepseek-aidsh-spill-local"></a>
 
 ## `@deepseek-ai/dsh-spill-local`
@@ -3220,6 +3253,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-settings-plugins` ([`packages/client/ui-settings-plugins/src/index.ts`](../packages/client/ui-settings-plugins/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-sidebar` ([`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-skill` ([`packages/client/ui-skill/src/index.ts`](../packages/client/ui-skill/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-speech-input` ([`packages/client/ui-speech-input/src/index.ts`](../packages/client/ui-speech-input/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-subagent` ([`packages/client/ui-subagent/src/index.ts`](../packages/client/ui-subagent/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-theme` ([`packages/client/ui-theme/src/index.ts`](../packages/client/ui-theme/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-tool` ([`packages/client/ui-tool/src/index.ts`](../packages/client/ui-tool/src/index.ts))

@@ -223,6 +223,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns local per-assistant-message feedback, lifecycle and target validation, per-item compare-and-set, and the Host unary Remote contract without entering Session history or telemetry.',
   },
   {
+    key: 'speechToTextLocal',
+    pkg: 'speech-to-text-local',
+    title: 'Local speech transcription',
+    mode: 'core',
+    consumers: ['client-ui-speech-input'],
+    note: 'Owns memory-aware Whisper model choice, bounded audio admission, single-operation execution, and the Host Remote; the browser consumer keeps provisional audio and text outside Session history.',
+  },
+  {
     key: 'workspaceRegistry',
     pkg: 'workspace',
     title: 'Workspace entity registry',

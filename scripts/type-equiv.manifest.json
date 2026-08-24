@@ -1964,6 +1964,36 @@
       "doc": "docs/subsystems/feedback.md",
       "symbol": "MessageFeedbackDeleteResult",
       "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/speech.md",
+      "symbol": "SpeechToTextModelPreference",
+      "source": "packages/speech/speech-to-text-local/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/speech.md",
+      "symbol": "SpeechToTextModel",
+      "source": "packages/speech/speech-to-text-local/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/speech.md",
+      "symbol": "SpeechTranscriptionRequest",
+      "source": "packages/speech/speech-to-text-local/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/speech.md",
+      "symbol": "SpeechToTextDescription",
+      "source": "packages/speech/speech-to-text-local/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/speech.md",
+      "symbol": "SpeechTranscriptionFailure",
+      "source": "packages/speech/speech-to-text-local/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/speech.md",
+      "symbol": "SpeechTranscriptionResult",
+      "source": "packages/speech/speech-to-text-local/src/types.ts"
     }
   ]
 }
