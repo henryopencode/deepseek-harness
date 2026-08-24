@@ -60,6 +60,9 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
+Function .onInit
+  SetShellVarContext current
+FunctionEnd
 Section "Install"
   SetShellVarContext current
   SetOutPath "$INSTDIR"
