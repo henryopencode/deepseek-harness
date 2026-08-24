@@ -81,8 +81,12 @@ jobs:
         run: |
           $installer = 'release/DeepSeek-Harness-Setup-x64.exe'
           $installDirectory = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness'
-          & $installer /S
-          if (!(Test-Path (Join-Path $installDirectory 'DeepSeek Harness.exe'))) { throw 'installer did not place the application executable' }
+          & $installer /S "/D=$installDirectory"
+          $application = Join-Path $installDirectory 'DeepSeek Harness.exe'
+          if (!(Test-Path $application)) {
+            Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -Recurse | Select-Object -ExpandProperty FullName
+            throw 'installer did not place the application executable'
+          }
           if (!(Test-Path (Join-Path $env:USERPROFILE 'Desktop\DeepSeek Harness.lnk'))) { throw 'installer did not create the desktop shortcut' }
           if (!(Test-Path (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\DeepSeek Harness\DeepSeek Harness.lnk'))) { throw 'installer did not create the Start Menu shortcut' }
           & (Join-Path $installDirectory 'Uninstall DeepSeek Harness.exe') /S
