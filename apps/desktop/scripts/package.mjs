@@ -1,0 +1,94 @@
+import { cp, mkdir, readFile, rm } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const scriptDirectory = dirname(fileURLToPath(import.meta.url))
+const desktopDirectory = resolve(scriptDirectory, '..')
+const repositoryDirectory = resolve(desktopDirectory, '../..')
+const args = new Map(process.argv.slice(2).flatMap((value, index, all) =>
+  value.startsWith('--') ? [[value.slice(2), all[index + 1]]] : []))
+const platform = args.get('platform') ?? process.platform
+const arch = args.get('arch') ?? process.arch
+const stageDirectory = join(tmpdir(), 'dsh-desktop-stage', `${platform}-${arch}`)
+const releaseDirectory = join(repositoryDirectory, 'release')
+const packageName = 'DeepSeek Harness'
+
+/** Run one build command and reject with its exit status. */
+function run(command, commandArgs, options = {}) {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(command, commandArgs, { stdio: 'inherit', ...options })
+    child.once('error', reject)
+    child.once('exit', code => code === 0 ? resolveRun() : reject(new Error(`${command} exited with ${String(code)}`)))
+  })
+}
+
+/** Copy the Node runtime that matches the dependencies staged for this platform. */
+async function copyNodeRuntime(target) {
+  if (platform === 'darwin') {
+    await cp(process.execPath, join(target, 'node'), { force: true })
+    return
+  }
+  await cp(dirname(process.execPath), target, { recursive: true, dereference: true })
+}
+
+/** Package a runnable Electron shell, then add the built Harness and Node runtime. */
+async function main() {
+  if (!['darwin', 'win32'].includes(platform)) {
+    throw new Error(`desktop package only supports darwin or win32, got ${platform}`)
+  }
+  await rm(stageDirectory, { recursive: true, force: true })
+  await mkdir(stageDirectory, { recursive: true })
+  const harnessDirectory = join(stageDirectory, 'harness')
+  await run('pnpm', [
+    '--filter', '@deepseek-ai/dsh-desktop',
+    'deploy', '--legacy', harnessDirectory,
+  ], { cwd: repositoryDirectory })
+  const nodeDirectory = join(stageDirectory, 'node')
+  await mkdir(nodeDirectory, { recursive: true })
+  await copyNodeRuntime(nodeDirectory)
+  const packagedDirectory = join(stageDirectory, 'electron')
+  const electronPackage = JSON.parse(await readFile(
+    join(repositoryDirectory, 'node_modules', 'electron', 'package.json'),
+    'utf8',
+  ))
+  await run(process.execPath, [
+    join(repositoryDirectory, 'node_modules', '@electron', 'packager', 'bin', 'electron-packager.mjs'),
+    desktopDirectory,
+    packageName,
+    `--platform=${platform}`,
+    `--arch=${arch}`,
+    `--out=${packagedDirectory}`,
+    '--overwrite',
+    '--asar',
+    '--ignore=node_modules',
+    '--prune=false',
+    `--electron-version=${electronPackage.version}`,
+    ...(platform === 'darwin' ? [`--extend-info=${join(desktopDirectory, 'build', 'Info.plist')}`] : []),
+  ], { cwd: repositoryDirectory })
+  const folderName = `${packageName}-${platform}-${arch}`
+  const packageDirectory = join(packagedDirectory, folderName)
+  const resourcesDirectory = platform === 'darwin'
+    ? join(packageDirectory, `${packageName}.app`, 'Contents', 'Resources')
+    : join(packageDirectory, 'resources')
+  await cp(harnessDirectory, join(resourcesDirectory, 'harness'), { recursive: true })
+  await cp(nodeDirectory, join(resourcesDirectory, 'node'), { recursive: true, dereference: true })
+  if (platform === 'darwin') {
+    await run('codesign', ['--force', '--deep', '--sign', '-', join(packageDirectory, `${packageName}.app`)])
+  }
+  await mkdir(releaseDirectory, { recursive: true })
+  const archiveName = platform === 'darwin'
+    ? 'DeepSeek-Harness-macos-arm64.zip'
+    : 'DeepSeek-Harness-windows-x64.zip'
+  const archive = join(releaseDirectory, archiveName)
+  await rm(archive, { force: true })
+  if (platform === 'darwin') {
+    await run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', join(packageDirectory, `${packageName}.app`), archive])
+  } else {
+    await run('tar', ['-a', '-c', '-f', archive, folderName], { cwd: packagedDirectory })
+  }
+  process.stdout.write(`desktop package: ${archive}\n`)
+}
+
+await main()
