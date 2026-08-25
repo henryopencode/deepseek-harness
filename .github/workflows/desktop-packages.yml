@@ -81,7 +81,10 @@ jobs:
         run: |
           $longestPath = tar -tf release/${{ matrix.artifact }} | ForEach-Object Length | Measure-Object -Maximum
           if ($longestPath.Maximum -gt 220) { throw "Windows archive path is $($longestPath.Maximum) characters; keep it at or below 220." }
-          $whisper = Get-ChildItem 'release/DeepSeek Harness-win32-x64/resources/harness/node_modules/nodejs-whisper/cpp/whisper.cpp/build' -Filter whisper-cli.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
+          $portableRoot = Join-Path $env:RUNNER_TEMP 'dsh-portable-check'
+          Expand-Archive -LiteralPath 'release/DeepSeek-Harness-windows-x64.zip' -DestinationPath $portableRoot -Force
+          $whisperRoot = Join-Path $portableRoot 'DeepSeek Harness-win32-x64/resources/harness/node_modules/nodejs-whisper/cpp/whisper.cpp/build'
+          $whisper = Get-ChildItem $whisperRoot -Filter whisper-cli.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
           if ($null -eq $whisper) { throw 'bundled whisper-cli is missing' }
           & $whisper --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'bundled whisper-cli did not start' }
