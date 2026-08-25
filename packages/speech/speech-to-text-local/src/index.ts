@@ -6,13 +6,16 @@
  */
 
 import { Buffer } from 'node:buffer'
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { createWriteStream } from 'node:fs'
+import { access, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
-import type { NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { nodewhisper } from 'nodejs-whisper'
 import { availableMemoryBytes, resolveSpeechToTextModel } from './model.ts'
@@ -35,12 +38,8 @@ export interface Config {
   readonly language: string
   /** Maximum decoded recording bytes admitted from the browser. */
   readonly maxAudioBytes: number
-  /** Maximum media duration admitted after ffprobe inspection. */
+  /** Maximum duration admitted from the browser-generated WAV header. */
   readonly maxAudioDurationMs: number
-  /** Executable path or PATH name used for duration inspection. */
-  readonly ffprobePath: string
-  /** Deadline for ffprobe inspection. */
-  readonly probeTimeoutMs: number
   /** Allow whisper.cpp to use its available GPU backend. */
   readonly useGpu: boolean
 }
@@ -55,23 +54,11 @@ const MODEL_FILES: Record<SpeechToTextModel, string> = {
   base: 'ggml-base.bin',
   small: 'ggml-small.bin',
 }
-
-/** Media types emitted by the supported browser MediaRecorder implementations. */
-const AUDIO_EXTENSIONS: readonly [prefix: string, extension: string][] = [
-  ['audio/webm', '.webm'],
-  ['audio/ogg', '.ogg'],
-  ['audio/mp4', '.m4a'],
-  ['audio/wav', '.wav'],
-]
+const WHISPER_MODEL_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main'
 
 /** Return one explicit failure branch. */
 function rejected(error: SpeechTranscriptionFailure): SpeechTranscriptionResult {
   return { ok: false, error }
-}
-
-/** Resolve an extension only for browser formats the provider can probe and convert. */
-function extensionFor(mediaType: string): string | undefined {
-  return AUDIO_EXTENSIONS.find(([prefix]) => mediaType === prefix || mediaType.startsWith(`${prefix};`))?.[1]
 }
 
 /** Decode a bounded canonical base64 payload without first allocating an oversized buffer. */
@@ -98,44 +85,38 @@ function decodeAudio(data: string, maxBytes: number): Buffer | SpeechTranscripti
   return decoded
 }
 
-/** Read one media duration with a bounded no-shell ffprobe invocation. */
-async function probeDurationMs(
-  filePath: string,
-  command: string,
-  timeoutMs: number,
-  runner: NativeCommandRunner = runNativeCommand,
-): Promise<number> {
-  const abort = new AbortController()
-  const timer = setTimeout(() => { abort.abort(new Error('ffprobe timed out')) }, timeoutMs)
-  try {
-    const { stdout } = await runner(command, [
-      '-v', 'error', '-show_entries', 'format=duration',
-      '-of', 'default=noprint_wrappers=1:nokey=1', filePath,
-    ], abort.signal)
-    const seconds = Number(stdout.trim())
-    if (Number.isFinite(seconds) && seconds > 0) return Math.ceil(seconds * 1000)
-
-    // WKWebView may emit a fragmented MP4 recording whose container omits
-    // `format=duration`. Packet timestamps remain present, so derive the last
-    // audio packet end instead of rejecting an otherwise decodable recording.
-    const packets = await runner(command, [
-      '-v', 'error', '-select_streams', 'a:0',
-      '-show_entries', 'packet=pts_time,duration_time', '-of', 'csv=p=0', filePath,
-    ], abort.signal)
-    const packetDuration = packets.stdout.split(/\r?\n/u).reduce((maximum, line) => {
-      const [ptsText, durationText] = line.split(',', 2)
-      const pts = Number(ptsText)
-      const duration = Number(durationText)
-      if (!Number.isFinite(pts)) return maximum
-      return Math.max(maximum, pts + (Number.isFinite(duration) && duration > 0 ? duration : 0))
-    }, 0)
-    if (!Number.isFinite(packetDuration) || packetDuration <= 0) {
-      throw new Error('ffprobe returned no positive audio packet duration')
-    }
-    return Math.ceil(packetDuration * 1000)
-  } finally {
-    clearTimeout(timer)
+/** Return the duration of a 16-bit, mono, 16 kHz PCM WAV browser recording. */
+function wavDurationMs(audio: Buffer): number | undefined {
+  if (audio.byteLength < 44 || audio.toString('ascii', 0, 4) !== 'RIFF' || audio.toString('ascii', 8, 12) !== 'WAVE') {
+    return undefined
   }
+  let offset = 12
+  let byteRate: number | undefined
+  let dataBytes: number | undefined
+  while (offset + 8 <= audio.byteLength) {
+    const id = audio.toString('ascii', offset, offset + 4)
+    const size = audio.readUInt32LE(offset + 4)
+    const dataOffset = offset + 8
+    const end = dataOffset + size
+    if (end > audio.byteLength) return undefined
+    if (id === 'fmt ' && size >= 16) {
+      const format = audio.readUInt16LE(dataOffset)
+      const channels = audio.readUInt16LE(dataOffset + 2)
+      const sampleRate = audio.readUInt32LE(dataOffset + 4)
+      const declaredByteRate = audio.readUInt32LE(dataOffset + 8)
+      const blockAlign = audio.readUInt16LE(dataOffset + 12)
+      const bitsPerSample = audio.readUInt16LE(dataOffset + 14)
+      if (
+        format !== 1 || channels !== 1 || sampleRate !== 16_000 || declaredByteRate !== 32_000
+        || blockAlign !== 2 || bitsPerSample !== 16
+      ) return undefined
+      byteRate = declaredByteRate
+    }
+    if (id === 'data' && dataBytes === undefined) dataBytes = size
+    offset = end + size % 2
+  }
+  if (byteRate === undefined || dataBytes === undefined || dataBytes === 0) return undefined
+  return Math.ceil(dataBytes * 1_000 / byteRate)
 }
 
 /** Remove whisper.cpp timestamp prefixes and empty-audio markers from stdout. */
@@ -153,6 +134,36 @@ function requireConfigString(name: string, value: string): string {
   return value
 }
 
+/** Download one missing ggml model without asking nodejs-whisper to rebuild whisper.cpp. */
+async function ensureModel(
+  root: string,
+  model: SpeechToTextModel,
+  autoDownload: boolean,
+): Promise<void> {
+  const filename = join(root, MODEL_FILES[model])
+  try {
+    await access(filename)
+    return
+  } catch {
+    if (!autoDownload) throw new Error(`Whisper model ${MODEL_FILES[model]} is missing.`)
+  }
+
+  const temporary = join(root, `.${MODEL_FILES[model]}.${randomUUID()}.part`)
+  try {
+    const response = await fetch(`${WHISPER_MODEL_URL}/${MODEL_FILES[model]}`)
+    if (!response.ok) throw new Error(`Whisper model download failed with HTTP ${response.status}.`)
+    if (response.body === null) throw new Error('Whisper model download returned no body.')
+    await pipeline(
+      Readable.fromWeb(response.body as unknown as NodeReadableStream),
+      createWriteStream(temporary, { flags: 'wx', mode: 0o600 }),
+    )
+    await rename(temporary, filename)
+  } catch (error) {
+    await rm(temporary, { force: true })
+    throw error
+  }
+}
+
 /** Local Whisper Remote; one process-wide model operation runs at a time. */
 export class SpeechToTextLocalService extends TypertRemoteService {
   static Config: z<Config> = z.object({
@@ -162,15 +173,12 @@ export class SpeechToTextLocalService extends TypertRemoteService {
     language: z.string().required(),
     maxAudioBytes: z.natural().min(1).required(),
     maxAudioDurationMs: z.natural().min(1).required(),
-    ffprobePath: z.string().required(),
-    probeTimeoutMs: z.natural().min(1).required(),
     useGpu: z.boolean().required(),
   })
 
   private readonly model: SpeechToTextModel
   private readonly modelRootPath: string
   private readonly language: string
-  private readonly ffprobePath: string
   private busy = false
 
   /**
@@ -182,7 +190,6 @@ export class SpeechToTextLocalService extends TypertRemoteService {
     this.model = resolveSpeechToTextModel(config.model, availableMemoryBytes())
     this.modelRootPath = requireConfigString('modelRootPath', config.modelRootPath)
     this.language = requireConfigString('language', config.language)
-    this.ffprobePath = requireConfigString('ffprobePath', config.ffprobePath)
   }
 
   /**
@@ -216,37 +223,34 @@ export class SpeechToTextLocalService extends TypertRemoteService {
     if (this.busy) {
       return rejected({ code: 'busy', message: 'Another local transcription is already running.' })
     }
-    const extension = extensionFor(request.mediaType)
-    if (extension === undefined) {
+    if (request.mediaType !== 'audio/wav') {
       return rejected({ code: 'invalid-audio', message: `Unsupported recording media type: ${request.mediaType}` })
     }
     const decoded = decodeAudio(request.audio, this.config.maxAudioBytes)
     if (!Buffer.isBuffer(decoded)) return decoded
+    const durationMs = wavDurationMs(decoded)
+    if (durationMs === undefined) {
+      return rejected({ code: 'invalid-audio', message: 'The recording is not the expected 16 kHz mono PCM WAV audio.' })
+    }
+    if (durationMs > this.config.maxAudioDurationMs) {
+      return rejected({
+        code: 'audio-too-long',
+        message: 'The recording exceeds the configured local transcription duration limit.',
+        maxDurationMs: this.config.maxAudioDurationMs,
+      })
+    }
 
     this.busy = true
     let workingDirectory: string | undefined
     try {
       await mkdir(this.modelRootPath, { recursive: true })
+      await ensureModel(this.modelRootPath, this.model, this.config.autoDownload)
       workingDirectory = await mkdtemp(join(tmpdir(), 'dsh-speech-to-text-'))
-      const inputPath = join(workingDirectory, `recording${extension}`)
+      const inputPath = join(workingDirectory, 'recording.wav')
       await writeFile(inputPath, decoded)
-      const durationMs = await probeDurationMs(
-        inputPath,
-        this.ffprobePath,
-        this.config.probeTimeoutMs,
-      )
-      if (durationMs > this.config.maxAudioDurationMs) {
-        return rejected({
-          code: 'audio-too-long',
-          message: 'The recording exceeds the configured local transcription duration limit.',
-          maxDurationMs: this.config.maxAudioDurationMs,
-        })
-      }
-
       const output = await nodewhisper(inputPath, {
         modelName: this.model,
         modelRootPath: this.modelRootPath,
-        ...(this.config.autoDownload ? { autoDownloadModelName: this.model } : {}),
         removeWavFileAfterTranscription: false,
         whisperOptions: {
           language: this.language,
@@ -271,7 +275,7 @@ export class SpeechToTextLocalService extends TypertRemoteService {
       this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
       return rejected({
         code: 'transcription-failed',
-        message: 'Local transcription failed. Check ffmpeg, ffprobe, CMake, and model availability.',
+        message: 'Local transcription failed. Check the Whisper model download and local network.',
       })
     } finally {
       this.busy = false

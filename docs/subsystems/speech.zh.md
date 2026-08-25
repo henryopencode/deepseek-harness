@@ -61,7 +61,7 @@ type SpeechTranscriptionResult =
 
 `model: auto` 会在服务构造时从 Node constrained memory 解析一次；不可用时读取物理内存。容量不超过 4 GiB 时选择多语言 `base`，更大时选择多语言 `small`。明确配置会绕过该选择。模型文件保留在配置的根目录；每个请求使用一个新临时目录，并在结算后删除。
 
-Host 只准入规范 base64 编码的 WebM、Ogg、MP4 或 WAV 音频。它在写入录音前拒绝解码字节溢出，再通过有界、无 shell 的 `ffprobe` 调用强制时长限制。一个私有准入标记会拒绝并发工作。已准入音频通过有限生命周期的 `nodejs-whisper` 进程运行，因此进程退出后会释放模型内存。
+Host 只准入规范 base64 编码的 16 kHz 单声道 PCM WAV 音频。它在写入录音前拒绝解码字节溢出和异常 WAV 头，再从 WAV 数据长度与字节率强制时长限制。一个私有准入标记会拒绝并发工作。已准入音频通过有限生命周期的 `nodejs-whisper` 进程运行，因此进程退出后会释放模型内存。
 
 ## 浏览器消费方
 
@@ -69,7 +69,7 @@ Host 只准入规范 base64 编码的 WebM、Ogg、MP4 或 WAV 音频。它在�
 
 ## 边界与限制
 
-- 首次使用可能下载所选模型并编译随附的 whisper.cpp 源码；提供方需要其包 README 中说明的前置条件与可写安装。
+- 首次使用可能下载所选模型，并且只在未随附可执行文件时编译随附的 whisper.cpp 源码；提供方需要其包 README 中说明的可写安装。
 - 浏览器取消只在上传前生效。当前 `nodejs-whisper` 依赖不公开活跃转写进程的 abort signal。
 - 浏览器会把识别文字追加到草稿末尾，因为同级输入框插件拿不到 textarea selection 状态。
 
@@ -102,5 +102,5 @@ Local Whisper Remote; one process-wide model operation runs at a time.
 @Remote('transcribe') async transcribe(request: SpeechTranscriptionRequest): Promise<SpeechTranscriptionResult>
 ```
 
-Source: [`packages/speech/speech-to-text-local/src/index.ts:157`](../../packages/speech/speech-to-text-local/src/index.ts)
+Source: [`packages/speech/speech-to-text-local/src/index.ts:168`](../../packages/speech/speech-to-text-local/src/index.ts)
 <!-- END GENERATED cordis-surface -->

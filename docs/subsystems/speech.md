@@ -61,7 +61,7 @@ type SpeechTranscriptionResult =
 
 `model: auto` resolves once at service construction from Node's constrained memory when available, otherwise physical memory. A capacity through 4 GiB chooses multilingual `base`; a larger capacity chooses multilingual `small`. Explicit configuration bypasses this choice. Model files remain under the configured root, while each request receives a fresh temporary directory removed after settlement.
 
-The Host admits only canonical base64 WebM, Ogg, MP4, or WAV audio. It rejects decoded byte overflow before writing the recording, then uses a bounded no-shell `ffprobe` invocation to enforce duration. One private admission flag rejects concurrent work. Accepted audio runs through a finite `nodejs-whisper` process, so model memory is released when the process exits.
+The Host admits only canonical base64 16 kHz mono PCM WAV audio. It rejects decoded byte overflow and malformed WAV headers before writing the recording, then enforces duration from the WAV data length and byte rate. One private admission flag rejects concurrent work. Accepted audio runs through a finite `nodejs-whisper` process, so model memory is released when the process exits.
 
 ## Browser consumer
 
@@ -69,7 +69,7 @@ The Host admits only canonical base64 WebM, Ogg, MP4, or WAV audio. It rejects d
 
 ## Boundaries and limitations
 
-- First use may download the selected model and compile the bundled whisper.cpp source; the provider requires the prerequisites and writable installation described in its package README.
+- First use may download the selected model and compile the bundled whisper.cpp source when no executable was shipped; the provider requires the writable installation described in its package README.
 - Browser cancellation applies before upload. The current `nodejs-whisper` dependency exposes no abort signal for an active transcription process.
 - The browser appends recognized text to the draft end because sibling composer plugins do not receive textarea selection state.
 
@@ -102,5 +102,5 @@ Local Whisper Remote; one process-wide model operation runs at a time.
 @Remote('transcribe') async transcribe(request: SpeechTranscriptionRequest): Promise<SpeechTranscriptionResult>
 ```
 
-Source: [`packages/speech/speech-to-text-local/src/index.ts:157`](../../packages/speech/speech-to-text-local/src/index.ts)
+Source: [`packages/speech/speech-to-text-local/src/index.ts:168`](../../packages/speech/speech-to-text-local/src/index.ts)
 <!-- END GENERATED cordis-surface -->

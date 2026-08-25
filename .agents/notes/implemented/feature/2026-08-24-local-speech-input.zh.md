@@ -10,7 +10,7 @@ Web 输入框接受键入文字与图片／文件输入，但没有麦克风路�
 
 ## 决策
 
-`@deepseek-ai/dsh-speech-to-text-local` 持有 direct `speechToTextLocal` Host Remote。它接受一段规范 base64 编码的浏览器录音，校验固定媒体类型集合、解码字节数与 `ffprobe` 时长，把执行串行限制为一个请求，通过 `nodejs-whisper` 转写，并在结算后删除生成的临时目录。配置负责模型目录、下载策略、语言、字节与时长限制、检查可执行文件／截止时间以及 GPU 使用。
+`@deepseek-ai/dsh-speech-to-text-local` 持有 direct `speechToTextLocal` Host Remote。它接受一段规范 base64 编码的 16 kHz 单声道 PCM WAV 浏览器录音，校验解码字节数与 WAV 头时长，直接从 whisper.cpp 模型发布源下载缺失的已配置 ggml 模型，把执行串行限制为一个请求，通过 `nodejs-whisper` 转写，并在结算后删除生成的临时目录。配置负责模型目录、下载策略、语言、字节与时长限制以及 GPU 使用。
 
 提供方在服务构造时只解析一次 `model: auto`。它优先读取 Node 的 constrained memory 值，否则回退到物理内存：4 GiB 及以下选择多语言 `base`，更大值选择多语言 `small`。明确配置 `base` 或 `small` 会绕过该选择。每个请求运行一个有限生命周期的 whisper.cpp 进程，不会在转写后继续占用模型内存。
 
@@ -30,6 +30,6 @@ Web 输入框接受键入文字与图片／文件输入，但没有麦克风路�
 
 ## 后果
 
-该功能在 4 GiB 部署上使用 `base` 模型运行，内存更多时优先使用 `small`。随附 Web 把单段录音限制为 4 MiB 与 60 秒，同时只准入一个转写。首次使用可能下载模型并编译 whisper.cpp，因此在启用自动下载时需要网络，还需要 `ffprobe`、CMake、C/C++ 工具链与可写的已安装包文件。浏览器的 WAV 路径不需要 FFmpeg 转换；Host 对另外支持的分段录音会在容器缺失时长时使用音频包时间戳。`nodejs-whisper` 不公开运行中转写的 abort signal；取消仍是上传前的录音操作。
+该功能在 4 GiB 部署上使用 `base` 模型运行，内存更多时优先使用 `small`。随附 Web 把单段录音限制为 4 MiB 与 60 秒，同时只准入一个转写。首次使用可能下载模型，因此启用自动下载时需要网络；源码部署只在没有随附可执行文件时编译 whisper.cpp。桌面包携带预编译 Whisper 可执行文件。浏览器的 WAV 路径不需要音频转换和外部媒体工具。`nodejs-whisper` 不公开运行中转写的 abort signal；取消仍是上传前的录音操作。
 
-聚焦测试固定了内存选择、wire 准入、容器与音频包时间戳时长强制、单操作并发、Loader 组合、Remote carrier 处理、PCM/WAV 媒体清理、草稿追加行为、slot 卸载与只用 token 的样式。浏览器验证固定了组装后控件的几何与活跃录音状态。
+聚焦测试固定了内存选择、wire 准入、WAV 头时长强制、单操作并发、Loader 组合、Remote carrier 处理、PCM/WAV 媒体清理、草稿追加行为、slot 卸载与只用 token 的样式。浏览器验证固定了组装后控件的几何与活跃录音状态。

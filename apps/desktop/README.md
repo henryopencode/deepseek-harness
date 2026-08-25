@@ -16,4 +16,4 @@ The package script writes a directly runnable archive under `release/`. It suppo
 
 Windows users should download `DeepSeek-Harness-Setup-x64.exe`. It installs the app under the current user's local programs directory, creates desktop and Start Menu shortcuts, appears in Windows Installed apps, and includes an uninstaller. The ZIP is a portable fallback. The artifacts are unsigned because this repository does not carry a Developer ID, Linux package signature, or Authenticode certificate. macOS may require Control-click → Open, Windows may require More info → Run anyway, and Linux desktops may require marking the extracted executable as trusted.
 
-The first local speech transcription still needs `ffmpeg`, `ffprobe`, CMake, and a C/C++ toolchain on the host; the Whisper model downloads under the Harness home.
+The browser records 16 kHz mono PCM WAV, and desktop packages include a platform-native `whisper-cli`; local transcription does not require host FFmpeg, FFprobe, CMake, or a C/C++ toolchain. The selected Whisper model downloads under the Harness home on first use.

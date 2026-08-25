@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -6,20 +6,35 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { nodewhisper } from 'nodejs-whisper'
 import SpeechToTextLocalService from '../src/index.ts'
 
-vi.mock('@deepseek-ai/dsh-native-command', () => ({
-  runNativeCommand: vi.fn(),
-}))
 vi.mock('nodejs-whisper', () => ({
   nodewhisper: vi.fn(),
 }))
 
 let root: string | undefined
 const contexts: Context[] = []
+
+function wav(): Buffer {
+  const data = Buffer.alloc(200)
+  const header = Buffer.alloc(44)
+  header.write('RIFF')
+  header.writeUInt32LE(36 + data.byteLength, 4)
+  header.write('WAVE', 8)
+  header.write('fmt ', 12)
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(16_000, 24)
+  header.writeUInt32LE(32_000, 28)
+  header.writeUInt16LE(2, 32)
+  header.writeUInt16LE(16, 34)
+  header.write('data', 36)
+  header.writeUInt32LE(data.byteLength, 40)
+  return Buffer.concat([header, data])
+}
 
 afterEach(async () => {
   vi.clearAllMocks()
@@ -33,6 +48,8 @@ describe('local speech transcription through a real Loader composition', () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-speech-loader-'))
     const configPath = join(root, 'cordis.yml')
     const modelRoot = join(root, 'models')
+    await mkdir(modelRoot)
+    await writeFile(join(modelRoot, 'ggml-base.bin'), 'model')
     await writeFile(configPath, [
       "- name: '@deepseek-ai/dsh-speech-to-text-local'",
       '  config:',
@@ -42,13 +59,10 @@ describe('local speech transcription through a real Loader composition', () => {
       '    language: auto',
       '    maxAudioBytes: 1024',
       '    maxAudioDurationMs: 60000',
-      '    ffprobePath: ffprobe',
-      '    probeTimeoutMs: 1000',
       '    useGpu: true',
       '',
     ].join('\n'))
 
-    vi.mocked(runNativeCommand).mockResolvedValue({ stdout: '0.8\n', stderr: '' })
     vi.mocked(nodewhisper).mockResolvedValue('[00:00:00.000 --> 00:00:00.800] Loader path works.\n')
 
     const ctx = new Context()
@@ -75,8 +89,8 @@ describe('local speech transcription through a real Loader composition', () => {
     expect(ctx.speechToTextLocal.typertRemote.namespace).toBe('speechToTextLocal')
     expect(remoteMethods(ctx.speechToTextLocal).map(marker => marker.method)).toEqual(['describe', 'transcribe'])
     await expect(ctx.speechToTextLocal.transcribe({
-      audio: Buffer.from('loader audio').toString('base64'),
-      mediaType: 'audio/webm',
+      audio: wav().toString('base64'),
+      mediaType: 'audio/wav',
     })).resolves.toEqual({
       ok: true,
       value: { text: 'Loader path works.', model: 'base' },

@@ -16,7 +16,7 @@ export const zh = {
   'error.no-speech': '没有识别到语音，请靠近麦克风并持续说两秒以上后重试。',
   'error.busy': '另一段语音正在转写，请稍后重试。',
   'error.invalid-audio': '录音格式无法识别，请重新录制。',
-  'error.transcription-failed': '本地转写失败，请检查 Whisper、FFmpeg 和模型状态。',
+  'error.transcription-failed': '本地转写失败，请检查 Whisper 模型下载和网络连接。',
   'error.transport': '无法连接本地转写服务，请稍后重试。',
 } satisfies Record<string, string>
 
@@ -39,6 +39,6 @@ export const en = {
   'error.no-speech': 'No speech was recognized. Speak near the microphone for at least two seconds and retry.',
   'error.busy': 'Another recording is being transcribed. Try again shortly.',
   'error.invalid-audio': 'The recording format could not be read. Record it again.',
-  'error.transcription-failed': 'Local transcription failed. Check Whisper, FFmpeg, and the model.',
+  'error.transcription-failed': 'Local transcription failed. Check the Whisper model download and network connection.',
   'error.transport': 'The local transcription service is unavailable. Try again shortly.',
 } satisfies Record<SpeechInputKey, string>

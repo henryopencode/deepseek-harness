@@ -10,6 +10,7 @@ const productName = 'DeepSeek Harness'
 const desktopProfileName = 'desktop'
 
 app.setName(productName)
+if (process.platform === 'win32') app.setAppUserModelId('ai.deepseek.harness.desktop')
 
 const appDirectory = dirname(fileURLToPath(import.meta.url))
 const repositoryDirectory = resolve(appDirectory, '../..')
@@ -20,8 +21,8 @@ const nodeExecutable = app.isPackaged
   : process.env.DSH_DESKTOP_NODE ?? process.env.npm_node_execpath ?? process.execPath
 const inheritedEnvironment = process.env
 const childPath = process.platform === 'win32'
-  ? `${dirname(nodeExecutable)};${inheritedEnvironment.SystemRoot ?? 'C:\\Windows'}\\System32;${inheritedEnvironment.SystemRoot ?? 'C:\\Windows'}`
-  : `${dirname(nodeExecutable)}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`
+  ? [dirname(nodeExecutable), `${inheritedEnvironment.SystemRoot ?? 'C:\\Windows'}\\System32`, inheritedEnvironment.SystemRoot ?? 'C:\\Windows'].join(';')
+  : [dirname(nodeExecutable), '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':')
 const homeDirectory = inheritedEnvironment.HOME ?? inheritedEnvironment.USERPROFILE
 const temporaryDirectory = inheritedEnvironment.TMPDIR ?? inheritedEnvironment.TEMP ?? inheritedEnvironment.TMP
 const proxyEnvironment = Object.fromEntries(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'].flatMap(name => {
@@ -35,6 +36,7 @@ const childEnvironment = Object.fromEntries([
   ['LANG', inheritedEnvironment.LANG ?? 'en_US.UTF-8'],
   ['TMPDIR', temporaryDirectory],
   ['PATH', childPath],
+  ['NODE_USE_ENV_PROXY', Object.keys(proxyEnvironment).length > 0 ? '1' : inheritedEnvironment.NODE_USE_ENV_PROXY],
   ...process.platform === 'win32' ? [
     ['APPDATA', inheritedEnvironment.APPDATA],
     ['ComSpec', inheritedEnvironment.ComSpec],

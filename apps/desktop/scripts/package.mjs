@@ -1,7 +1,7 @@
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
@@ -23,6 +23,7 @@ const icon = join(desktopDirectory, 'build', {
   linux: 'icon.png',
   win32: 'icon.ico',
 }[platform] ?? 'icon.png')
+const executableSuffix = platform === 'win32' ? '.exe' : ''
 
 /** Run one build command and reject with its exit status. */
 function run(command, commandArgs, options = {}) {
@@ -44,6 +45,63 @@ async function copyNodeRuntime(target) {
     return
   }
   await cp(dirname(process.execPath), target, { recursive: true, dereference: true })
+}
+
+/** Replace workspace links to vendored runtime packages with their portable files. */
+async function materializeVendoredRuntimePackages(harnessDirectory) {
+  const packages = {
+    cosmokit: 'lib/index.js',
+    schemastery: 'lib/index.mjs',
+  }
+  for (const [name, entry] of Object.entries(packages)) {
+    const target = join(harnessDirectory, 'node_modules', '@deepseek-ai', name)
+    await rm(target, { recursive: true, force: true })
+    await cp(join(repositoryDirectory, 'vendor', name), target, { recursive: true })
+    await rm(join(target, 'node_modules'), { recursive: true, force: true })
+    await access(join(target, entry))
+  }
+}
+
+/** Reject package links that would resolve only on the machine that built the archive. */
+async function assertNoAbsoluteLinks(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name)
+    if (entry.isSymbolicLink()) {
+      const target = await readlink(path)
+      if (isAbsolute(target)) throw new Error(`desktop package contains an absolute link: ${path} -> ${target}`)
+    } else if (entry.isDirectory()) {
+      await assertNoAbsoluteLinks(path)
+    }
+  }
+}
+
+/** Compile the bundled whisper.cpp source before shipping the desktop runtime. */
+async function buildBundledWhisper(harnessDirectory) {
+  const source = join(harnessDirectory, 'node_modules', 'nodejs-whisper', 'cpp', 'whisper.cpp')
+  await run('cmake', [
+    '-B', 'build',
+    ...platform === 'darwin' ? [
+      `-DCMAKE_OSX_ARCHITECTURES=${arch}`,
+      '-DGGML_NATIVE=OFF',
+    ] : [],
+  ], { cwd: source })
+  await run('cmake', ['--build', 'build', '--config', 'Release', '--target', 'whisper-cli'], { cwd: source })
+  const candidates = platform === 'win32'
+    ? [
+      join(source, 'build', 'bin', 'Release', `whisper-cli${executableSuffix}`),
+      join(source, 'build', 'bin', `whisper-cli${executableSuffix}`),
+      join(source, 'build', `whisper-cli${executableSuffix}`),
+    ]
+    : [join(source, 'build', 'bin', `whisper-cli${executableSuffix}`)]
+  for (const executable of candidates) {
+    try {
+      await access(executable)
+      return
+    } catch (error) {
+      if ((error).code !== 'ENOENT') throw error
+    }
+  }
+  throw new Error('desktop package did not build whisper-cli')
 }
 
 /** Build the per-user Windows installer and its desktop and Start Menu shortcuts. */
@@ -74,12 +132,13 @@ Section "Install"
   SetOutPath "$INSTDIR"
   File /r "${join(packageDirectory, '*')}"
   CreateDirectory "$SMPROGRAMS\DeepSeek Harness"
-  CreateShortCut "$DESKTOP\DeepSeek Harness.lnk" "$INSTDIR\DeepSeek Harness.exe"
-  CreateShortCut "$SMPROGRAMS\DeepSeek Harness\DeepSeek Harness.lnk" "$INSTDIR\DeepSeek Harness.exe"
+  CreateShortCut "$DESKTOP\DeepSeek Harness.lnk" "$INSTDIR\DeepSeek Harness.exe" "" "$INSTDIR\DeepSeek Harness.exe" 0
+  CreateShortCut "$SMPROGRAMS\DeepSeek Harness\DeepSeek Harness.lnk" "$INSTDIR\DeepSeek Harness.exe" "" "$INSTDIR\DeepSeek Harness.exe" 0
   CreateShortCut "$SMPROGRAMS\DeepSeek Harness\卸载 DeepSeek Harness.lnk" "$INSTDIR\Uninstall DeepSeek Harness.exe"
   WriteUninstaller "$INSTDIR\Uninstall DeepSeek Harness.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "DisplayName" "DeepSeek Harness"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "DisplayVersion" "${desktopPackage.version}"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "DisplayIcon" "$INSTDIR\DeepSeek Harness.exe,0"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "Publisher" "DeepSeek Harness"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "UninstallString" "$\"$INSTDIR\Uninstall DeepSeek Harness.exe$\""
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "QuietUninstallString" "$\"$INSTDIR\Uninstall DeepSeek Harness.exe$\" /S"
@@ -139,8 +198,12 @@ async function main() {
   const resourcesDirectory = platform === 'darwin'
     ? join(packageDirectory, `${packageName}.app`, 'Contents', 'Resources')
     : join(packageDirectory, 'resources')
-  await cp(harnessDirectory, join(resourcesDirectory, 'harness'), { recursive: true })
+  await cp(harnessDirectory, join(resourcesDirectory, 'harness'), { recursive: true, dereference: true })
   await cp(nodeDirectory, join(resourcesDirectory, 'node'), { recursive: true, dereference: true })
+  const packagedHarnessDirectory = join(resourcesDirectory, 'harness')
+  await materializeVendoredRuntimePackages(packagedHarnessDirectory)
+  await assertNoAbsoluteLinks(packagedHarnessDirectory)
+  await buildBundledWhisper(packagedHarnessDirectory)
   if (platform === 'darwin') {
     await run('codesign', ['--force', '--deep', '--sign', '-', join(packageDirectory, `${packageName}.app`)])
   }

@@ -78,8 +78,6 @@
         language: auto
         maxAudioBytes: 4194304
         maxAudioDurationMs: 60000
-        ffprobePath: ffprobe
-        probeTimeoutMs: 10000
         useGpu: true
 
     # Browser Session export: `/export` command plus the shared download dialog.

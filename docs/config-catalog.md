@@ -2026,12 +2026,8 @@ export interface Config {
   readonly language: string
   /** Maximum decoded recording bytes admitted from the browser. */
   readonly maxAudioBytes: number
-  /** Maximum media duration admitted after ffprobe inspection. */
+  /** Maximum duration admitted from the browser-generated WAV header. */
   readonly maxAudioDurationMs: number
-  /** Executable path or PATH name used for duration inspection. */
-  readonly ffprobePath: string
-  /** Deadline for ffprobe inspection. */
-  readonly probeTimeoutMs: number
   /** Allow whisper.cpp to use its available GPU backend. */
   readonly useGpu: boolean
 }
@@ -2040,7 +2036,7 @@ export interface Config {
 export type SpeechToTextModelPreference = 'auto' | 'base' | 'small'
 ```
 
-Source: [`packages/speech/speech-to-text-local/src/index.ts:27`](../packages/speech/speech-to-text-local/src/index.ts)
+Source: [`packages/speech/speech-to-text-local/src/index.ts:30`](../packages/speech/speech-to-text-local/src/index.ts)
 
 <a id="deepseek-aidsh-spill-local"></a>
 

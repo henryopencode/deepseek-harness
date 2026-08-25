@@ -16,4 +16,4 @@ pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform darwin --arch a
 
 Windows 用户应下载 `DeepSeek-Harness-Setup-x64.exe`。它会安装到当前用户的本地程序目录、创建桌面和开始菜单快捷方式、显示在 Windows 已安装的应用中，并提供卸载程序；ZIP 仅作为便携版备用。仓库未提供 Developer ID、Linux 包签名或 Authenticode 证书，因此下载归档首次启动时可能出现平台信任警告。macOS 可按住 Control 点击 → 打开，Windows 可选择更多信息 → 仍要运行，Linux 桌面环境可能需要将解压后的可执行文件标为受信任。
 
-首次本地语音转写仍需要宿主机具备 `ffmpeg`、`ffprobe`、CMake 和 C/C++ 工具链；Whisper 模型会下载到 Harness home。
+浏览器会录制 16 kHz 单声道 PCM WAV，桌面包内置平台原生的 `whisper-cli`；本地转写不需要宿主机安装 FFmpeg、FFprobe、CMake 或 C/C++ 工具链。所选 Whisper 模型会在首次使用时下载到 Harness home。
