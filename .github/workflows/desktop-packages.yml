@@ -14,11 +14,11 @@ permissions:
   contents: write
 
 env:
-  DESKTOP_RELEASE_TAG: v0.2.2
+  DESKTOP_RELEASE_TAG: v0.2.3
 
 jobs:
   prepare-release:
-    name: Prepare v0.2.2 release
+    name: Prepare v0.2.3 release
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.package-matrix.outputs.value }}
@@ -28,7 +28,7 @@ jobs:
         run: |
           gh release view "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "DeepSeek Harness Desktop v0.2.2" \
+              --title "DeepSeek Harness Desktop v0.2.3" \
               --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon, Linux x64, and Windows x64, including the Windows installer."
       - id: package-matrix
         env:
@@ -66,10 +66,15 @@ jobs:
         run: choco install nsis --yes --no-progress
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
-      - env:
+      - if: matrix.platform == 'win32'
+        env:
           DSH_DESKTOP_STAGE_ROOT: 'D:\dsh-stage'
           ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
           NSIS_MAKENSIS: 'C:\Program Files (x86)\NSIS\makensis.exe'
+        run: pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+      - if: matrix.platform != 'win32'
+        env:
+          ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
         run: pnpm --filter @deepseek-ai/dsh-desktop run package -- --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
       - if: matrix.platform == 'win32'
         shell: pwsh
