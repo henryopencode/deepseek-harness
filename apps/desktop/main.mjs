@@ -1,11 +1,15 @@
 import electron from 'electron'
 import { createServer } from 'node:net'
-import { appendFile, mkdir } from 'node:fs/promises'
+import { mkdir, open, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 
 const { app, BrowserWindow, Menu, session, shell, systemPreferences } = electron
+const productName = 'DeepSeek Harness'
+const desktopProfileName = 'desktop'
+
+app.setName(productName)
 
 const appDirectory = dirname(fileURLToPath(import.meta.url))
 const repositoryDirectory = resolve(appDirectory, '../..')
@@ -51,6 +55,32 @@ let mainWindow
 let harnessProcess
 let harnessPort
 let harnessLog
+let harnessLogHandle
+
+const desktopWebRuntimePatch = `# The desktop shell owns the local page and never hands it to an external browser.
+- id: web-runtime
+  config:
+    openBrowser: false
+    printUrl: false
+    surfaceContext: true
+    trustedHosts: []
+`
+const desktopProfileManifest = `${JSON.stringify({
+  name: 'dsh-profile-desktop',
+  private: true,
+  dependencies: {},
+  dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
+}, undefined, 2)}
+`
+const desktopProfilePatch = `# The desktop profile is reserved for the Electron shell.
+[]
+`
+const desktopProfileWorkspace = `packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
+`
 
 /** Escape one diagnostic value before rendering it into the local status page. */
 function escapeHtml(value) {
@@ -71,12 +101,53 @@ async function showStatus(title, detail) {
 </main>`)} `)
 }
 
-/** Persist child output without exposing it to the rendered local page. */
-function appendHarnessLog(value) {
-  if (harnessLog === undefined) return
-  void appendFile(harnessLog, value).catch(() => {
-    // The launcher keeps running if the optional diagnostic file cannot be written.
+/** Close the child's diagnostic handle after its process tree has stopped. */
+function closeHarnessLog() {
+  const handle = harnessLogHandle
+  harnessLogHandle = undefined
+  if (handle !== undefined) void handle.close().catch(() => {
+    // A closed diagnostic file never changes the child process outcome.
   })
+}
+
+/** Quote one literal for the POSIX shell that owns the packaged macOS child process. */
+function shellQuote(value) {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`
+}
+
+/** Report whether a single-writer profile initialization found its expected file. */
+function isAlreadyExists(error) {
+  return error instanceof Error && 'code' in error && error.code === 'EEXIST'
+}
+
+/** Write one desktop profile file without replacing user-owned contents. */
+async function writeIfAbsent(path, content) {
+  try {
+    await writeFile(path, content, { encoding: 'utf8', flag: 'wx' })
+  } catch (error) {
+    if (!isAlreadyExists(error)) throw error
+  }
+}
+
+/** Prepare the dedicated desktop profile while retaining the shared Harness home data. */
+async function prepareDesktopProfile() {
+  if (homeDirectory === undefined) throw new Error('DeepSeek Harness cannot resolve the current user home directory.')
+  const profileDirectory = join(homeDirectory, '.dsh', 'profiles', desktopProfileName)
+  await mkdir(profileDirectory, { recursive: true })
+  await Promise.all([
+    writeIfAbsent(join(profileDirectory, 'package.json'), desktopProfileManifest),
+    writeIfAbsent(join(profileDirectory, 'cordis.patch.yml'), desktopProfilePatch),
+    writeIfAbsent(join(profileDirectory, 'pnpm-workspace.yaml'), desktopProfileWorkspace),
+  ])
+}
+
+/** Write the final web-runtime overlay that keeps the private page inside Electron. */
+async function writeDesktopWebRuntimePatch() {
+  const stateDirectory = app.getPath('userData')
+  await mkdir(stateDirectory, { recursive: true })
+  const patch = join(stateDirectory, 'desktop-web-runtime.patch.yml')
+  await writeFile(patch, desktopWebRuntimePatch, 'utf8')
+  return patch
 }
 
 /** Reserve one loopback port before the owned child starts its web listener. */
@@ -133,25 +204,43 @@ function stopHarness() {
 /** Start the packaged CLI as an owned private loopback server. */
 async function startHarness() {
   harnessPort = await reservePort()
+  await prepareDesktopProfile()
   const logDirectory = join(app.getPath('userData'), 'logs')
   await mkdir(logDirectory, { recursive: true })
   harnessLog = join(logDirectory, 'harness.log')
+  harnessLogHandle = await open(harnessLog, 'a')
+  const runtimePatch = await writeDesktopWebRuntimePatch()
   const cli = app.isPackaged
     ? join(harnessDirectory, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
     : join(harnessDirectory, 'apps', 'cli', 'lib', 'bin.js')
-  harnessProcess = spawn(nodeExecutable, [cli, '--profile', 'web', '--no-open', '--port', String(harnessPort)], {
+  const harnessArgs = [
+    cli,
+    '--profile', desktopProfileName,
+    '--patch', runtimePatch,
+    '--no-open',
+    '--port', String(harnessPort),
+  ]
+  const useWindowsLauncher = process.platform === 'win32'
+  harnessProcess = spawn(
+    useWindowsLauncher ? nodeExecutable : '/bin/sh',
+    useWindowsLauncher ? harnessArgs : ['-c', `${[nodeExecutable, ...harnessArgs].map(shellQuote).join(' ')} & wait $!`],
+    {
     cwd: harnessDirectory,
     detached: process.platform !== 'win32',
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // Electron exposes pipe output as Unix sockets on macOS. A packaged Node
+    // child can stall before loading its modules on those descriptors, so the
+    // child's own stdout and stderr go straight to its diagnostic file.
+    stdio: ['ignore', harnessLogHandle.fd, harnessLogHandle.fd],
     env: childEnvironment,
-  })
-  harnessProcess.stdout.on('data', data => appendHarnessLog(String(data)))
-  harnessProcess.stderr.on('data', data => {
-    appendHarnessLog(String(data))
-    console.error(`[harness] ${String(data).trimEnd()}`)
+    },
+  )
+  harnessProcess.on('error', error => {
+    closeHarnessLog()
+    console.error(`[harness] ${error.message}`)
   })
   harnessProcess.on('exit', (code, signal) => {
+    closeHarnessLog()
     if (harnessProcess === undefined || mainWindow?.isDestroyed()) return
     void showStatus('DeepSeek Harness 已停止', `code: ${String(code)}，signal: ${String(signal)}。日志：${harnessLog ?? '不可用'}`)
   })
@@ -165,7 +254,7 @@ async function createWindow() {
     height: 860,
     minWidth: 960,
     minHeight: 640,
-    title: 'DeepSeek Harness',
+    title: productName,
     backgroundColor: '#ffffff',
     webPreferences: {
       contextIsolation: true,
@@ -174,10 +263,11 @@ async function createWindow() {
     },
   })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(`http://127.0.0.1:${String(harnessPort)}/`)) return { action: 'deny' }
     void shell.openExternal(url)
     return { action: 'deny' }
   })
-  await showStatus('正在启动 DeepSeek Harness…', '正在准备本地服务。')
+  await showStatus(`正在启动 ${productName}…`, '正在准备本地服务。')
   await startHarness()
   await mainWindow.loadURL(`http://127.0.0.1:${String(harnessPort)}/`)
 }
@@ -190,9 +280,31 @@ app.whenReady().then(async () => {
     callback(allowed)
   })
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { role: 'appMenu' },
-    { role: 'editMenu' },
-    { role: 'viewMenu' },
+    {
+      label: productName,
+      submenu: [
+        { label: `关于 ${productName}`, role: 'about' },
+        { label: `隐藏 ${productName}`, role: 'hide' },
+        { label: '隐藏其他', role: 'hideOthers' },
+        { label: '显示全部', role: 'unhide' },
+        { type: 'separator' },
+        { label: '退出', role: 'quit' },
+      ],
+    },
+    {
+      label: '显示',
+      submenu: [
+        { label: '重新加载', role: 'reload' },
+        { label: '强制重新加载', role: 'forceReload' },
+        { label: '开发者工具', role: 'toggleDevTools' },
+        { type: 'separator' },
+        { label: '实际大小', role: 'resetZoom' },
+        { label: '放大', role: 'zoomIn' },
+        { label: '缩小', role: 'zoomOut' },
+        { type: 'separator' },
+        { label: '切换全屏', role: 'togglefullscreen' },
+      ],
+    },
   ]))
   try {
     await createWindow()

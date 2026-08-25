@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This Electron shell owns one private `dsh web` child process, embeds a matching Node runtime and built Harness tree, then displays that loopback server in a native window. Closing the window stops the owned child process tree.
+This Electron shell owns one private `dsh web` child process, embeds a matching Node runtime and built Harness tree, then displays that loopback server in a native window. It initializes a dedicated `desktop` profile under the shared Harness home, so CLI `web` profile plugins cannot delay desktop startup while settings, credentials, sessions, and workspaces remain shared. A final desktop-owned Web overlay disables default-browser handoff. Closing the window stops the owned child process tree.
 
 ## Build packages
 

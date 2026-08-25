@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这个 Electron 外壳拥有一个私有 `dsh web` 子进程，把匹配的 Node runtime 和已构建 Harness 一起嵌入，然后在原生窗口展示该 loopback 服务。关闭窗口会停止它拥有的子进程树。
+这个 Electron 外壳拥有一个私有 `dsh web` 子进程，把匹配的 Node runtime 和已构建 Harness 一起嵌入，然后在原生窗口展示该 loopback 服务。它会在共享的 Harness home 下初始化独立的 `desktop` profile，使 CLI 的 `web` profile 插件不会拖慢桌面端启动，同时继续共享设置、凭据、会话和工作区。由桌面端拥有的最终 Web 覆盖层会关闭默认浏览器交接。关闭窗口会停止它拥有的子进程树。
 
 ## 构建安装包
 

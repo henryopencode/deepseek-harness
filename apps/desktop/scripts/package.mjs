@@ -15,8 +15,14 @@ const stageRoot = process.env.DSH_DESKTOP_STAGE_ROOT ?? join(tmpdir(), 'dsh-desk
 const stageDirectory = join(stageRoot, `${platform}-${arch}`)
 const releaseDirectory = join(repositoryDirectory, 'release')
 const packageName = 'DeepSeek Harness'
+const desktopPackage = JSON.parse(await readFile(join(desktopDirectory, 'package.json'), 'utf8'))
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const makensisExecutable = process.env.NSIS_MAKENSIS ?? 'makensis.exe'
+const icon = join(desktopDirectory, 'build', {
+  darwin: 'icon.icns',
+  linux: 'icon.png',
+  win32: 'icon.ico',
+}[platform] ?? 'icon.png')
 
 /** Run one build command and reject with its exit status. */
 function run(command, commandArgs, options = {}) {
@@ -73,7 +79,7 @@ Section "Install"
   CreateShortCut "$SMPROGRAMS\DeepSeek Harness\卸载 DeepSeek Harness.lnk" "$INSTDIR\Uninstall DeepSeek Harness.exe"
   WriteUninstaller "$INSTDIR\Uninstall DeepSeek Harness.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "DisplayName" "DeepSeek Harness"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "DisplayVersion" "0.2.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "DisplayVersion" "${desktopPackage.version}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "Publisher" "DeepSeek Harness"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "UninstallString" "$\"$INSTDIR\Uninstall DeepSeek Harness.exe$\""
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "QuietUninstallString" "$\"$INSTDIR\Uninstall DeepSeek Harness.exe$\" /S"
@@ -121,6 +127,7 @@ async function main() {
     `--out=${packagedDirectory}`,
     '--overwrite',
     '--asar',
+    `--icon=${icon}`,
     '--ignore=node_modules',
     '--prune=false',
     `--electron-version=${electronPackage.version}`,
