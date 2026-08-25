@@ -90,9 +90,12 @@ jobs:
           }
           if (!(Test-Path (Join-Path $env:USERPROFILE 'Desktop\DeepSeek Harness.lnk'))) { throw 'installer did not create the desktop shortcut' }
           if (!(Test-Path (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\DeepSeek Harness\DeepSeek Harness.lnk'))) { throw 'installer did not create the Start Menu shortcut' }
+          $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness'
+          if (!(Test-Path $uninstallKey) -or (Get-ItemPropertyValue $uninstallKey DisplayName) -ne 'DeepSeek Harness') { throw 'installer did not register the installed application' }
           $uninstallResult = Start-Process -FilePath (Join-Path $installDirectory 'Uninstall DeepSeek Harness.exe') -ArgumentList '/S' -Wait -PassThru
           if ($uninstallResult.ExitCode -ne 0) { throw "uninstaller exited with $($uninstallResult.ExitCode)" }
           if (Test-Path $installDirectory) { throw 'uninstaller did not remove the installation directory' }
+          if (Test-Path $uninstallKey) { throw 'uninstaller did not remove the installed application registration' }
       - if: matrix.platform == 'win32'
         env:
           GH_TOKEN: ${{ github.token }}

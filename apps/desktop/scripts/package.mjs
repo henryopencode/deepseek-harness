@@ -72,11 +72,19 @@ Section "Install"
   CreateShortCut "$SMPROGRAMS\DeepSeek Harness\DeepSeek Harness.lnk" "$INSTDIR\DeepSeek Harness.exe"
   CreateShortCut "$SMPROGRAMS\DeepSeek Harness\卸载 DeepSeek Harness.lnk" "$INSTDIR\Uninstall DeepSeek Harness.exe"
   WriteUninstaller "$INSTDIR\Uninstall DeepSeek Harness.exe"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "DisplayName" "DeepSeek Harness"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "DisplayVersion" "0.2.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "Publisher" "DeepSeek Harness"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "UninstallString" "$\"$INSTDIR\Uninstall DeepSeek Harness.exe$\""
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "QuietUninstallString" "$\"$INSTDIR\Uninstall DeepSeek Harness.exe$\" /S"
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "NoModify" 1
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness" "NoRepair" 1
 SectionEnd
 Section "Uninstall"
   SetShellVarContext current
   Delete "$DESKTOP\DeepSeek Harness.lnk"
   RMDir /r "$SMPROGRAMS\DeepSeek Harness"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepSeek Harness"
   RMDir /r "$INSTDIR"
 SectionEnd
 `)
