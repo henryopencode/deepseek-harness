@@ -95,14 +95,6 @@ jobs:
       - if: matrix.platform == 'darwin'
         shell: bash
         run: |
-          terminate_process_tree() {
-            local pid="$1"
-            local child
-            for child in $(pgrep -P "$pid" 2>/dev/null || true); do
-              terminate_process_tree "$child"
-            done
-            kill "$pid" 2>/dev/null || true
-          }
           check_electron_start() {
             local application="$1"
             local log="$2"
@@ -110,9 +102,6 @@ jobs:
             local pid=$!
             for _ in $(seq 1 80); do
               if ! kill -0 "$pid" 2>/dev/null; then
-                for child in $(pgrep -P "$pid" 2>/dev/null || true); do
-                  terminate_process_tree "$child"
-                done
                 if wait "$pid"; then
                   return 0
                 else
@@ -123,7 +112,9 @@ jobs:
               fi
               sleep 0.1
             done
-            terminate_process_tree "$pid"
+            pkill -TERM -f "$application/Contents/" 2>/dev/null || true
+            sleep 1
+            pkill -KILL -f "$application/Contents/" 2>/dev/null || true
             wait "$pid" 2>/dev/null || true
           }
           check_root="$RUNNER_TEMP/dsh-macos-check"
@@ -153,7 +144,7 @@ jobs:
           done < <(find "$dmg_application" -type l -print0)
           codesign --verify --deep --strict --verbose=2 "$dmg_application"
           check_electron_start "$dmg_application" "$RUNNER_TEMP/dsh-electron-dmg.log"
-          hdiutil detach "$dmg_root" >/dev/null
+          hdiutil detach "$dmg_root" >/dev/null || hdiutil detach -force "$dmg_root" >/dev/null
           hdiutil imageinfo release/DeepSeek-Harness-macos-arm64.dmg >/dev/null
       - if: matrix.platform == 'win32'
         shell: pwsh
