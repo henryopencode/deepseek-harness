@@ -104,8 +104,14 @@ function escapeHtml(value) {
 async function showStatus(title, detail) {
   await mainWindow.loadURL(`data:text/html,${encodeURIComponent(`<!doctype html>
 <meta charset="utf-8">
-<main style="font:16px -apple-system,BlinkMacSystemFont,sans-serif;display:grid;place-items:center;height:100vh;margin:0;background:#fff;color:#202124">
-  <section style="max-width:560px;text-align:center">
+<style>
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+  body { background: #fff; color: #202124; }
+  main { box-sizing: border-box; display: grid; place-items: center; width: 100%; height: 100%; padding: 24px; font: 16px -apple-system, BlinkMacSystemFont, sans-serif; }
+  section { max-width: 560px; text-align: center; }
+</style>
+<main>
+  <section>
     <h1>${escapeHtml(title)}</h1>
     <p style="color:#5f6368;line-height:1.6">${escapeHtml(detail)}</p>
   </section>
