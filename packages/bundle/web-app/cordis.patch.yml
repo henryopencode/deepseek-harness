@@ -78,7 +78,7 @@
         language: auto
         maxAudioBytes: 4194304
         maxAudioDurationMs: 60000
-        useGpu: true
+        useGpu: !!js process.platform === 'darwin'
 
     # Browser Session export: `/export` command plus the shared download dialog.
     - id: session-log-download

@@ -30,7 +30,7 @@ const requireBuiltArtifacts = process.env.DSH_REQUIRE_BUILT_CLI_SMOKE === '1'
 interface ConfigRow {
   id?: string
   disabled?: unknown
-  config?: { openAt?: unknown }
+  config?: { openAt?: unknown; useGpu?: unknown }
 }
 
 interface PatchEntry extends ConfigRow {
@@ -98,6 +98,15 @@ function runBuiltWeb(cwd: string): Promise<{ stdout: string; stderr: string; cod
     })
   })
 }
+
+describe('shipped Web speech GPU policy', () => {
+  it('enables the GPU only on macOS', async () => {
+    const webRows = (yaml.load(await readFile(webConfigPath, 'utf8'), { schema: configSchema }) as PatchEntry[])
+      .flatMap(entry => entry.insert ?? [entry])
+    const speech = webRows.find(row => row.id === 'speech-to-text-local')
+    expect(speech?.config?.useGpu).toBe("process.platform === 'darwin'")
+  })
+})
 
 describe.skipIf(!requireBuiltArtifacts)('built CLI lazy-search startup', () => {
   it('boots and disposes the shipped composition with full-text search off by default', async () => {
