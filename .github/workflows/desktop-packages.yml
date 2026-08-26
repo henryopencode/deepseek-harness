@@ -65,6 +65,8 @@ jobs:
         shell: pwsh
         run: choco install nsis --yes --no-progress
       - run: pnpm install --frozen-lockfile
+      - if: matrix.platform == 'win32'
+        run: pnpm exec vitest run apps/cli/tests/lazy-search-startup.compat.spec.ts
       - run: pnpm run build
       - if: matrix.platform == 'win32'
         env:
