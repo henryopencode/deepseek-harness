@@ -2,7 +2,7 @@
   "name": "@deepseek-ai/dsh-desktop",
   "productName": "DeepSeek Harness",
   "description": "Electron desktop launcher that owns a local DeepSeek Harness web process.",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "type": "module",
   "main": "main.mjs",

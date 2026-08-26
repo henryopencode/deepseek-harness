@@ -1,8 +1,9 @@
-import { access, cp, mkdir, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertNoAbsoluteLinks, relativizeAbsoluteLinks } from './package-links.mjs'
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const desktopDirectory = resolve(scriptDirectory, '..')
@@ -59,19 +60,6 @@ async function materializeVendoredRuntimePackages(harnessDirectory) {
     await cp(join(repositoryDirectory, 'vendor', name), target, { recursive: true })
     await rm(join(target, 'node_modules'), { recursive: true, force: true })
     await access(join(target, entry))
-  }
-}
-
-/** Reject package links that would resolve only on the machine that built the archive. */
-async function assertNoAbsoluteLinks(directory) {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name)
-    if (entry.isSymbolicLink()) {
-      const target = await readlink(path)
-      if (isAbsolute(target)) throw new Error(`desktop package contains an absolute link: ${path} -> ${target}`)
-    } else if (entry.isDirectory()) {
-      await assertNoAbsoluteLinks(path)
-    }
   }
 }
 
@@ -172,7 +160,10 @@ async function packageMacInstaller(packageDirectory) {
   await rm(installer, { force: true })
   await rm(contents, { recursive: true, force: true })
   await mkdir(contents, { recursive: true })
-  await cp(join(packageDirectory, `${packageName}.app`), join(contents, `${packageName}.app`), { recursive: true })
+  await cp(join(packageDirectory, `${packageName}.app`), join(contents, `${packageName}.app`), {
+    recursive: true,
+    verbatimSymlinks: true,
+  })
   await symlink('/Applications', join(contents, 'Applications'))
   await run('hdiutil', ['create', '-volname', packageName, '-srcfolder', contents, '-ov', '-format', 'UDZO', installer])
 }
@@ -219,6 +210,13 @@ async function main() {
   const resourcesDirectory = platform === 'darwin'
     ? join(packageDirectory, `${packageName}.app`, 'Contents', 'Resources')
     : join(packageDirectory, 'resources')
+  const applicationDirectory = platform === 'darwin'
+    ? join(packageDirectory, `${packageName}.app`)
+    : undefined
+  if (applicationDirectory !== undefined) {
+    await relativizeAbsoluteLinks(applicationDirectory)
+    await assertNoAbsoluteLinks(applicationDirectory)
+  }
   await cp(harnessDirectory, join(resourcesDirectory, 'harness'), { recursive: true, dereference: true })
   await cp(nodeDirectory, join(resourcesDirectory, 'node'), { recursive: true, dereference: true })
   const packagedHarnessDirectory = join(resourcesDirectory, 'harness')

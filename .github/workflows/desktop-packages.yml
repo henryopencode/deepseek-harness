@@ -14,11 +14,11 @@ permissions:
   contents: write
 
 env:
-  DESKTOP_RELEASE_TAG: v0.2.5
+  DESKTOP_RELEASE_TAG: v0.2.6
 
 jobs:
   prepare-release:
-    name: Prepare v0.2.5 release
+    name: Prepare v0.2.6 release
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.package-matrix.outputs.value }}
@@ -28,8 +28,8 @@ jobs:
         run: |
           gh release view "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "DeepSeek Harness Desktop v0.2.5" \
-              --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon, Linux x64, and Windows x64, including the Windows installer."
+              --title "DeepSeek Harness Desktop v0.2.6" \
+              --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon, Linux x64, and Windows x64, including macOS and Windows installers."
       - id: package-matrix
         env:
           TARGET: ${{ github.event.inputs.target || 'all' }}
@@ -65,6 +65,8 @@ jobs:
         shell: pwsh
         run: choco install nsis --yes --no-progress
       - run: pnpm install --frozen-lockfile
+      - if: matrix.platform == 'darwin'
+        run: node --test apps/desktop/scripts/package-links.test.mjs
       - if: matrix.platform == 'win32'
         run: pnpm exec vitest run apps/cli/tests/lazy-search-startup.compat.spec.ts
       - run: pnpm run build
@@ -93,12 +95,54 @@ jobs:
       - if: matrix.platform == 'darwin'
         shell: bash
         run: |
+          check_electron_start() {
+            local application="$1"
+            local log="$2"
+            "$application/Contents/MacOS/DeepSeek Harness" --version >"$log" 2>&1 &
+            local pid=$!
+            for _ in $(seq 1 80); do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                if wait "$pid"; then
+                  return 0
+                else
+                  local code=$?
+                  cat "$log" >&2
+                  return "$code"
+                fi
+              fi
+              sleep 0.1
+            done
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+          }
           check_root="$RUNNER_TEMP/dsh-macos-check"
           ditto -x -k release/DeepSeek-Harness-macos-arm64.zip "$check_root"
+          application="$check_root/DeepSeek Harness.app"
+          while IFS= read -r -d '' link; do
+            target="$(readlink "$link")"
+            case "$target" in
+              /*) echo "packaged app contains an absolute link: $link -> $target" >&2; exit 1 ;;
+            esac
+          done < <(find "$application" -type l -print0)
+          codesign --verify --deep --strict --verbose=2 "$application"
+          check_electron_start "$application" "$RUNNER_TEMP/dsh-electron-zip.log"
           whisper="$check_root/DeepSeek Harness.app/Contents/Resources/harness/node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-cli"
           test -x "$whisper"
           otool -l "$whisper" | grep -A2 'LC_RPATH' | grep -F '@loader_path'
           "$whisper" --help >/dev/null
+          dmg_root="$RUNNER_TEMP/dsh-macos-dmg-check"
+          mkdir -p "$dmg_root"
+          hdiutil attach -nobrowse -readonly -mountpoint "$dmg_root" release/DeepSeek-Harness-macos-arm64.dmg >/dev/null
+          dmg_application="$dmg_root/DeepSeek Harness.app"
+          while IFS= read -r -d '' link; do
+            target="$(readlink "$link")"
+            case "$target" in
+              /*) echo "DMG application contains an absolute link: $link -> $target" >&2; exit 1 ;;
+            esac
+          done < <(find "$dmg_application" -type l -print0)
+          codesign --verify --deep --strict --verbose=2 "$dmg_application"
+          check_electron_start "$dmg_application" "$RUNNER_TEMP/dsh-electron-dmg.log"
+          hdiutil detach "$dmg_root" >/dev/null
           hdiutil imageinfo release/DeepSeek-Harness-macos-arm64.dmg >/dev/null
       - if: matrix.platform == 'win32'
         shell: pwsh
