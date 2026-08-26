@@ -14,11 +14,11 @@ permissions:
   contents: write
 
 env:
-  DESKTOP_RELEASE_TAG: v0.2.3
+  DESKTOP_RELEASE_TAG: v0.2.4
 
 jobs:
   prepare-release:
-    name: Prepare v0.2.3 release
+    name: Prepare v0.2.4 release
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.package-matrix.outputs.value }}
@@ -28,7 +28,7 @@ jobs:
         run: |
           gh release view "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "DeepSeek Harness Desktop v0.2.3" \
+              --title "DeepSeek Harness Desktop v0.2.4" \
               --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon, Linux x64, and Windows x64, including the Windows installer."
       - id: package-matrix
         env:
@@ -88,6 +88,16 @@ jobs:
           if ($null -eq $whisper) { throw 'bundled whisper-cli is missing' }
           & $whisper --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'bundled whisper-cli did not start' }
+      - if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          check_root="$RUNNER_TEMP/dsh-macos-check"
+          ditto -x -k release/DeepSeek-Harness-macos-arm64.zip "$check_root"
+          whisper="$check_root/DeepSeek Harness.app/Contents/Resources/harness/node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-cli"
+          test -x "$whisper"
+          otool -l "$whisper" | grep -A2 'LC_RPATH' | grep -F '@loader_path'
+          "$whisper" --help >/dev/null
+          hdiutil imageinfo release/DeepSeek-Harness-macos-arm64.dmg >/dev/null
       - if: matrix.platform == 'win32'
         shell: pwsh
         run: |
@@ -113,6 +123,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: gh release upload $env:DESKTOP_RELEASE_TAG release/DeepSeek-Harness-Setup-x64.exe --repo $env:GITHUB_REPOSITORY --clobber
+      - if: matrix.platform == 'darwin'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release upload "$DESKTOP_RELEASE_TAG" release/DeepSeek-Harness-macos-arm64.dmg --repo "$GITHUB_REPOSITORY" --clobber
       - env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh

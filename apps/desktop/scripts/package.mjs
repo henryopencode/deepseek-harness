@@ -1,4 +1,4 @@
-import { access, cp, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -11,7 +11,7 @@ const args = new Map(process.argv.slice(2).flatMap((value, index, all) =>
   value.startsWith('--') ? [[value.slice(2), all[index + 1]]] : []))
 const platform = args.get('platform') ?? process.platform
 const arch = args.get('arch') ?? process.arch
-const stageRoot = process.env.DSH_DESKTOP_STAGE_ROOT ?? join(tmpdir(), 'dsh-desktop-stage')
+const stageRoot = process.env.DSH_DESKTOP_STAGE_ROOT || join(tmpdir(), 'dsh-desktop-stage')
 const stageDirectory = join(stageRoot, `${platform}-${arch}`)
 const releaseDirectory = join(repositoryDirectory, 'release')
 const packageName = 'DeepSeek Harness'
@@ -96,12 +96,21 @@ async function buildBundledWhisper(harnessDirectory) {
   for (const executable of candidates) {
     try {
       await access(executable)
-      return
+      return executable
     } catch (error) {
       if ((error).code !== 'ENOENT') throw error
     }
   }
   throw new Error('desktop package did not build whisper-cli')
+}
+
+/** Give every macOS whisper.cpp binary a runpath relative to its own bundle directory. */
+async function relocateMacosWhisper(executable) {
+  const binaryDirectory = dirname(executable)
+  for (const entry of await readdir(binaryDirectory, { withFileTypes: true })) {
+    if (!entry.isFile() || (entry.name !== 'whisper-cli' && !entry.name.endsWith('.dylib'))) continue
+    await run('install_name_tool', ['-add_rpath', '@loader_path', join(binaryDirectory, entry.name)])
+  }
 }
 
 /** Build the per-user Windows installer and its desktop and Start Menu shortcuts. */
@@ -156,6 +165,18 @@ SectionEnd
   await run(makensisExecutable, [installerScript])
 }
 
+/** Create the macOS drag-to-install disk image with an Applications shortcut. */
+async function packageMacInstaller(packageDirectory) {
+  const installer = join(releaseDirectory, 'DeepSeek-Harness-macos-arm64.dmg')
+  const contents = join(stageDirectory, 'dmg')
+  await rm(installer, { force: true })
+  await rm(contents, { recursive: true, force: true })
+  await mkdir(contents, { recursive: true })
+  await cp(join(packageDirectory, `${packageName}.app`), join(contents, `${packageName}.app`), { recursive: true })
+  await symlink('/Applications', join(contents, 'Applications'))
+  await run('hdiutil', ['create', '-volname', packageName, '-srcfolder', contents, '-ov', '-format', 'UDZO', installer])
+}
+
 /** Package a runnable Electron shell, then add the built Harness and Node runtime. */
 async function main() {
   if (!['darwin', 'linux', 'win32'].includes(platform)) {
@@ -203,7 +224,8 @@ async function main() {
   const packagedHarnessDirectory = join(resourcesDirectory, 'harness')
   await materializeVendoredRuntimePackages(packagedHarnessDirectory)
   await assertNoAbsoluteLinks(packagedHarnessDirectory)
-  await buildBundledWhisper(packagedHarnessDirectory)
+  const whisperExecutable = await buildBundledWhisper(packagedHarnessDirectory)
+  if (platform === 'darwin') await relocateMacosWhisper(whisperExecutable)
   if (platform === 'darwin') {
     await run('codesign', ['--force', '--deep', '--sign', '-', join(packageDirectory, `${packageName}.app`)])
   }
@@ -223,6 +245,7 @@ async function main() {
     await run('tar', ['-a', '-c', '-f', archive, folderName], { cwd: packagedDirectory })
   }
   if (platform === 'win32') await packageWindowsInstaller(packageDirectory)
+  if (platform === 'darwin') await packageMacInstaller(packageDirectory)
   process.stdout.write(`desktop package: ${archive}\n`)
 }
 
