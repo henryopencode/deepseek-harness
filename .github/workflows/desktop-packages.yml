@@ -14,11 +14,11 @@ permissions:
   contents: write
 
 env:
-  DESKTOP_RELEASE_TAG: v0.2.6
+  DESKTOP_RELEASE_TAG: v0.2.7
 
 jobs:
   prepare-release:
-    name: Prepare v0.2.6 release
+    name: Prepare v0.2.7 release
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.package-matrix.outputs.value }}
@@ -28,8 +28,8 @@ jobs:
         run: |
           gh release view "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$DESKTOP_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "DeepSeek Harness Desktop v0.2.6" \
-              --notes "Electron desktop release with local speech-to-text for macOS Apple Silicon, Linux x64, and Windows x64, including macOS and Windows installers."
+              --title "DeepSeek Harness Desktop v0.2.7" \
+              --notes "Electron desktop release with local speech-to-text, single-instance window reuse, and native edit context menus for macOS Apple Silicon, Linux x64, and Windows x64."
       - id: package-matrix
         env:
           TARGET: ${{ github.event.inputs.target || 'all' }}

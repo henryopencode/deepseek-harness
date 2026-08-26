@@ -11,6 +11,7 @@ const desktopProfileName = 'desktop'
 
 app.setName(productName)
 if (process.platform === 'win32') app.setAppUserModelId('ai.deepseek.harness.desktop')
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
 const appDirectory = dirname(fileURLToPath(import.meta.url))
 const repositoryDirectory = resolve(appDirectory, '../..')
@@ -58,6 +59,14 @@ let harnessProcess
 let harnessPort
 let harnessLog
 let harnessLogHandle
+
+/** Focus the one application window when a second launch requests the product. */
+function focusMainWindow() {
+  if (mainWindow === undefined || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
 
 const desktopWebRuntimePatch = `# The desktop shell owns the local page and never hands it to an external browser.
 - id: web-runtime
@@ -269,12 +278,36 @@ async function createWindow() {
     void shell.openExternal(url)
     return { action: 'deny' }
   })
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const { editFlags } = params
+    const template = []
+    if (params.isEditable) {
+      if (editFlags.canUndo) template.push({ label: '撤销', click: () => mainWindow?.webContents.undo() })
+      if (editFlags.canRedo) template.push({ label: '重做', click: () => mainWindow?.webContents.redo() })
+      if (editFlags.canUndo || editFlags.canRedo) template.push({ type: 'separator' })
+      if (editFlags.canCut) template.push({ label: '剪切', click: () => mainWindow?.webContents.cut() })
+      if (editFlags.canCopy) template.push({ label: '复制', click: () => mainWindow?.webContents.copy() })
+      if (editFlags.canPaste) template.push({ label: '粘贴', click: () => mainWindow?.webContents.paste() })
+      if (editFlags.canCut || editFlags.canCopy || editFlags.canPaste) template.push({ type: 'separator' })
+    } else if (params.editFlags.canCopy && params.selectionText.trim() !== '') {
+      template.push({ label: '复制', click: () => mainWindow?.webContents.copy() })
+    }
+    if (editFlags.canSelectAll) template.push({ label: '全选', click: () => mainWindow?.webContents.selectAll() })
+    if (params.linkURL !== '') {
+      if (template.length > 0) template.push({ type: 'separator' })
+      template.push({ label: '在浏览器中打开链接', click: () => void shell.openExternal(params.linkURL) })
+    }
+    if (template.length === 0) return
+    const contextMenu = Menu.buildFromTemplate(template)
+    contextMenu.popup({ window: mainWindow })
+  })
   await showStatus(`正在启动 ${productName}…`, '正在准备本地服务。')
   await startHarness()
   await mainWindow.loadURL(`http://127.0.0.1:${String(harnessPort)}/`)
+  focusMainWindow()
 }
 
-app.whenReady().then(async () => {
+if (hasSingleInstanceLock) app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const allowed = permission === 'media'
       && details.mediaTypes?.includes('audio') === true
@@ -324,4 +357,11 @@ app.on('before-quit', stopHarness)
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow()
+  else focusMainWindow()
 })
+
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', focusMainWindow)
+}
