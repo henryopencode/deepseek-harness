@@ -60,7 +60,7 @@ async function materializeVendoredRuntimePackages(harnessDirectory) {
   for (const [name, entry] of Object.entries(packages)) {
     const target = join(harnessDirectory, 'node_modules', '@deepseek-ai', name)
     await rm(target, { recursive: true, force: true })
-    await cp(join(repositoryDirectory, 'vendor', name), target, { recursive: true })
+    await cp(join(repositoryDirectory, 'vendor', name), target, { recursive: true, dereference: true })
     await rm(join(target, 'node_modules'), { recursive: true, force: true })
     await access(join(target, entry))
   }

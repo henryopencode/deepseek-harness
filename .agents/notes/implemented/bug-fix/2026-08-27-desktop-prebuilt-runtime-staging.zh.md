@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-桌面打包器接受两个可选的本地构建输入：`DSH_DESKTOP_NODE_RUNTIME` 指向 Windows Node runtime 目录，`DSH_DESKTOP_WHISPER_DIRECTORY` 指向含有已验证、平台匹配的 Whisper 可执行文件及其库的目录。为 Windows 包提供它们时，脚本会将文件复制到暂存产品中，并在继续前验证 `node.exe` 和 `whisper-cli.exe`。未提供任一输入时，所有官方 CI 构建仍沿用普通的宿主 runtime 复制和原生 Whisper 编译。
+桌面打包器接受两个可选的本地构建输入：`DSH_DESKTOP_NODE_RUNTIME` 指向 Windows Node runtime 目录，`DSH_DESKTOP_WHISPER_DIRECTORY` 指向含有已验证、平台匹配的 Whisper 可执行文件及其库的目录。为 Windows 包提供它们时，脚本会将文件复制到暂存产品中，并在继续前验证 `node.exe` 和 `whisper-cli.exe`。vendor runtime 包会在复制时解引用链接，因此 Windows 包不需要开发者模式的符号链接权限。未提供任一输入时，所有官方 CI 构建仍沿用普通的宿主 runtime 复制和原生 Whisper 编译。
 
 ## Alternatives considered
 

@@ -10,7 +10,7 @@ A local Windows package rebuild can run on a host whose Node architecture or nat
 
 ## Decision
 
-The desktop packager accepts two optional local-build inputs: `DSH_DESKTOP_NODE_RUNTIME` names a Windows Node runtime directory, and `DSH_DESKTOP_WHISPER_DIRECTORY` names a directory containing a verified platform-matching Whisper executable with its libraries. When supplied for a Windows package, the script copies those files into the staged product and verifies `node.exe` and `whisper-cli.exe` before continuing. Without either input, every official CI build retains its normal host-runtime copy and native Whisper compilation.
+The desktop packager accepts two optional local-build inputs: `DSH_DESKTOP_NODE_RUNTIME` names a Windows Node runtime directory, and `DSH_DESKTOP_WHISPER_DIRECTORY` names a directory containing a verified platform-matching Whisper executable with its libraries. When supplied for a Windows package, the script copies those files into the staged product and verifies `node.exe` and `whisper-cli.exe` before continuing. Vendored runtime packages are copied with their links dereferenced so a Windows package does not require developer-mode symbolic-link privileges. Without either input, every official CI build retains its normal host-runtime copy and native Whisper compilation.
 
 ## Alternatives considered
 
