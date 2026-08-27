@@ -19,6 +19,8 @@ const packageName = 'DeepSeek Harness'
 const desktopPackage = JSON.parse(await readFile(join(desktopDirectory, 'package.json'), 'utf8'))
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const makensisExecutable = process.env.NSIS_MAKENSIS ?? 'makensis.exe'
+const nodeRuntimeDirectory = process.env.DSH_DESKTOP_NODE_RUNTIME
+const prebuiltWhisperDirectory = process.env.DSH_DESKTOP_WHISPER_DIRECTORY
 const icon = join(desktopDirectory, 'build', {
   darwin: 'icon.icns',
   linux: 'icon.png',
@@ -45,7 +47,8 @@ async function copyNodeRuntime(target) {
     await cp(process.execPath, join(target, 'node'), { force: true })
     return
   }
-  await cp(dirname(process.execPath), target, { recursive: true, dereference: true })
+  await cp(nodeRuntimeDirectory ?? dirname(process.execPath), target, { recursive: true, dereference: true })
+  await access(join(target, 'node.exe'))
 }
 
 /** Replace workspace links to vendored runtime packages with their portable files. */
@@ -66,6 +69,15 @@ async function materializeVendoredRuntimePackages(harnessDirectory) {
 /** Compile the bundled whisper.cpp source before shipping the desktop runtime. */
 async function buildBundledWhisper(harnessDirectory) {
   const source = join(harnessDirectory, 'node_modules', 'nodejs-whisper', 'cpp', 'whisper.cpp')
+  if (prebuiltWhisperDirectory !== undefined) {
+    const binaryDirectory = join(source, 'build', 'bin', ...platform === 'win32' ? ['Release'] : [])
+    await rm(binaryDirectory, { recursive: true, force: true })
+    await mkdir(dirname(binaryDirectory), { recursive: true })
+    await cp(prebuiltWhisperDirectory, binaryDirectory, { recursive: true, dereference: true })
+    const executable = join(binaryDirectory, `whisper-cli${executableSuffix}`)
+    await access(executable)
+    return executable
+  }
   await run('cmake', [
     '-B', 'build',
     ...platform === 'darwin' ? [
